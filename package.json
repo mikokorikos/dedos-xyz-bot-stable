@@ -29,6 +29,7 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "deploy:commands": "tsx scripts/deploy-commands.ts",
+    "render:cards-preview": "tsx scripts/render-cards-preview.ts",
     "clear:commands": "tsx scripts/clear-commands.ts",
     "migrate:from-old": "tsx scripts/migrate-from-old-db.ts",
     "docker:up": "docker-compose up -d",

@@ -47,7 +47,10 @@ const LayoutSchema = z.enum(['compact', 'standard', 'expanded']);
 const PatternSchema = z.enum(['none', 'grid', 'waves', 'circuit', 'mesh']);
 const StarStyleSchema = z.enum(['sharp', 'rounded']);
 const FrameStyleSchema = z.enum(['rounded', 'cut']);
-const MediaTypeSchema = z.enum(['image', 'gif']);
+const MediaTypeSchema = z
+  .enum(['image', 'gif'])
+  .default('image')
+  .transform(() => 'image' as const);
 const MediaFitSchema = z.enum(['cover', 'contain', 'fill']);
 const SideMediaPositionSchema = z.enum(['left', 'right']);
 const SideMediaFitSchema = z.enum(['contain', 'cover']);
@@ -56,7 +59,7 @@ const optionalShortText = (max: number) => z.string().trim().min(1).max(max);
 
 const BackgroundSchema = z
   .object({
-    type: MediaTypeSchema.default('image'),
+    type: MediaTypeSchema,
     url: z.string().trim().url().max(512),
     fit: MediaFitSchema.default('cover'),
     position: z.string().trim().min(1).max(32).default('center'),
@@ -77,7 +80,7 @@ const BorderSchema = z
 
 const SideMediaSchema = z
   .object({
-    type: MediaTypeSchema.default('image'),
+    type: MediaTypeSchema,
     url: z.string().trim().url().max(512),
     width: z.number().min(80).max(420).default(240),
     fit: SideMediaFitSchema.default('contain'),
@@ -136,7 +139,7 @@ export interface MiddlemanCardChip {
 }
 
 export interface MiddlemanCardBackground {
-  readonly type: z.infer<typeof MediaTypeSchema>;
+  readonly type: 'image';
   readonly url: string;
   readonly fit: z.infer<typeof MediaFitSchema>;
   readonly position: string;
@@ -153,7 +156,7 @@ export interface MiddlemanCardBorder {
 }
 
 export interface MiddlemanCardSideMedia {
-  readonly type: z.infer<typeof MediaTypeSchema>;
+  readonly type: 'image';
   readonly url: string;
   readonly width: number;
   readonly fit: z.infer<typeof SideMediaFitSchema>;

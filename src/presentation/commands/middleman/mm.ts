@@ -286,8 +286,8 @@ const handleStats = async (interaction: ChatInputCommandInteraction): Promise<vo
   const avatarUrl = target.displayAvatarURL({ extension: 'png', size: 256 });
   const bannerUrl =
     typeof resolvedUser.bannerURL === 'function'
-      ? resolvedUser.bannerURL({ size: 2048, forceStatic: false, extension: 'gif' }) ??
-        resolvedUser.bannerURL({ size: 2048, forceStatic: false }) ??
+      ? resolvedUser.bannerURL({ size: 2048, forceStatic: true, extension: 'png' }) ??
+        resolvedUser.bannerURL({ size: 2048, forceStatic: true }) ??
         undefined
       : undefined;
 
@@ -640,8 +640,8 @@ const handlePrefixDirectoryStats = async (message: Message, args: ReadonlyArray<
   const avatarUrl = user?.displayAvatarURL({ extension: 'png', size: 256 });
   const bannerUrl =
     user && typeof user.bannerURL === 'function'
-      ? user.bannerURL({ size: 2048, forceStatic: false, extension: 'gif' }) ??
-        user.bannerURL({ size: 2048, forceStatic: false }) ??
+      ? user.bannerURL({ size: 2048, forceStatic: true, extension: 'png' }) ??
+        user.bannerURL({ size: 2048, forceStatic: true }) ??
         undefined
       : undefined;
 
