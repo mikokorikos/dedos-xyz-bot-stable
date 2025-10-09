@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+
 import type { Logger } from 'pino';
 
 import { createChildLogger } from './pino';
