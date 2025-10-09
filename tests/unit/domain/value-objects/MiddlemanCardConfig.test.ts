@@ -18,26 +18,26 @@ describe('MiddlemanCardConfig schema', () => {
     expect(config.sideMedia?.type).toBe('image');
   });
 
-  it('rejects GIF backgrounds', () => {
-    expect(() =>
-      parseMiddlemanCardConfig({
-        background: {
-          type: 'gif' as never,
-          url: 'https://cdn.example.com/background.gif',
-        },
-      }),
-    ).toThrowError(/Only static PNG media is supported/);
+  it('normalizes GIF backgrounds as supported media', () => {
+    const config = parseMiddlemanCardConfig({
+      background: {
+        type: 'gif',
+        url: 'https://cdn.example.com/background.gif',
+      },
+    });
+
+    expect(config.background?.type).toBe('gif');
   });
 
-  it('rejects GIF side media', () => {
-    expect(() =>
-      parseMiddlemanCardConfig({
-        sideMedia: {
-          type: 'gif' as never,
-          url: 'https://cdn.example.com/side.gif',
-          width: 260,
-        },
-      }),
-    ).toThrowError(/Only static PNG media is supported/);
+  it('normalizes GIF side media as supported media', () => {
+    const config = parseMiddlemanCardConfig({
+      sideMedia: {
+        type: 'gif',
+        url: 'https://cdn.example.com/side.gif',
+        width: 260,
+      },
+    });
+
+    expect(config.sideMedia?.type).toBe('gif');
   });
 });

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 
 import { createCanvas, loadImage, type SKRSContext2D } from '@napi-rs/canvas';
 import { AttachmentBuilder } from 'discord.js';
+import sharp from 'sharp';
 
 import type { MiddlemanProfile } from '@/domain/repositories/IMiddlemanRepository';
 import type {
@@ -82,6 +83,11 @@ interface ImageCacheEntry {
   readonly expiresAt: number;
 }
 
+interface LoadRemoteImageOptions {
+  readonly context?: Record<string, unknown>;
+  readonly convertAnimatedToStatic?: boolean;
+}
+
 const rendererLog = createModuleLogger('Renderer.MiddlemanCardGenerator');
 
 const formatNumber = (value: number): string => {
@@ -108,6 +114,21 @@ const createCacheKey = (type: string, payload: unknown): string => {
 };
 
 const hashForLog = (value: string): string => createHash('sha1').update(value).digest('hex');
+
+const isGifBuffer = (buffer: Buffer): boolean =>
+  buffer.length >= 4 && buffer.subarray(0, 3).toString('ascii') === 'GIF';
+
+const isLikelyGifUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.toLowerCase().endsWith('.gif');
+  } catch (error) {
+    if (error instanceof Error) {
+      rendererLog.info('isLikelyGifUrl', 'parse-failed', { reason: error.message });
+    }
+    return url.toLowerCase().includes('.gif');
+  }
+};
 
 const traceRoundedRectPath = (
   ctx: SKRSContext2D,
@@ -471,16 +492,39 @@ const fetchImageBuffer = async (url: string, options?: FetchImageOptions): Promi
   }
 };
 
+const flattenGifToPng = async (buffer: Buffer): Promise<Buffer> => {
+  const run = rendererLog.start('flattenGifToPng', {
+    bytes: buffer.length,
+  });
+
+  try {
+    run.step('sharp:extract-frame');
+    const pngBuffer = await sharp(buffer, { animated: true })
+      .ensureAlpha()
+      .png({ progressive: false })
+      .toBuffer();
+    run.success({ resultBytes: pngBuffer.length });
+    return pngBuffer;
+  } catch (error) {
+    run.error(error, { reason: error instanceof Error ? error.message : 'sharp-failed' });
+    throw error;
+  }
+};
+
 const loadRemoteImage = async (
   url: string,
   cache: Map<string, ImageCacheEntry>,
   cacheKey: string,
-  context?: Record<string, unknown>,
+  options?: LoadRemoteImageOptions,
 ): Promise<CanvasImageSource | null> => {
+  const context = options?.context ?? {};
+  const convertAnimated = options?.convertAnimatedToStatic ?? false;
+
   const run = rendererLog.start('loadRemoteImage', {
     url,
     cacheKey,
-    ...(context ?? {}),
+    convertAnimated,
+    ...context,
   });
 
   const now = Date.now();
@@ -497,9 +541,26 @@ const loadRemoteImage = async (
 
   try {
     run.step('download:start', { url });
-    const buffer = await fetchImageBuffer(url, { context: context ?? {} });
-    run.step('decode:start', { bytes: buffer.length });
-    const image = await loadImage(buffer);
+    const buffer = await fetchImageBuffer(url, { context });
+    let decodeBuffer = buffer;
+
+    if (convertAnimated && isGifBuffer(buffer)) {
+      run.step('animation:detected', { format: 'gif' });
+      try {
+        decodeBuffer = await flattenGifToPng(buffer);
+        run.step('animation:flattened', { bytes: decodeBuffer.length });
+      } catch (error) {
+        run.step('animation:fallback', {
+          reason: error instanceof Error ? error.message : 'unknown',
+        });
+        decodeBuffer = buffer;
+      }
+    } else if (convertAnimated) {
+      run.step('animation:not-detected');
+    }
+
+    run.step('decode:start', { bytes: decodeBuffer.length });
+    const image = await loadImage(decodeBuffer);
     const expiresAt = Date.now() + CACHE_TTL_MS;
     cache.set(cacheKey, { image, expiresAt });
     run.success({ cacheHit: false, expiresAt });
@@ -624,7 +685,11 @@ const drawBackgroundMedia = async (
   try {
     const cacheKey = `bg:${background.url}`;
     const image = await loadRemoteImage(background.url, imageCache, cacheKey, {
-      layer: 'background',
+      context: {
+        layer: 'background',
+        type: background.type,
+      },
+      convertAnimatedToStatic: background.type === 'gif',
     });
     if (!image) {
       run.success({ result: 'skipped', reason: 'image-unavailable' });
@@ -664,7 +729,7 @@ const drawBannerBackground = async (
   const run = rendererLog.start('drawBannerBackground', { url: bannerUrl });
 
   const background: MiddlemanCardBackground = {
-    type: 'image',
+    type: isLikelyGifUrl(bannerUrl) ? 'gif' : 'image',
     url: bannerUrl,
     fit: 'cover',
     position: 'center',
@@ -774,7 +839,11 @@ const drawSideMedia = async (
 
   const cacheKey = `side:${sideMedia.url}`;
   const image = await loadRemoteImage(sideMedia.url, imageCache, cacheKey, {
-    layer: 'side-media',
+    context: {
+      layer: 'side-media',
+      type: sideMedia.type,
+    },
+    convertAnimatedToStatic: sideMedia.type === 'gif',
   });
   if (!image) {
     run.success({ result: 'skipped', reason: 'image-unavailable' });
@@ -955,7 +1024,10 @@ class MiddlemanCardGenerator {
           options.discordAvatarUrl,
           this.imageCache,
           `discord:${options.discordAvatarUrl}`,
-          { resource: 'discord-avatar', discordTagHash: hashedTag },
+          {
+            context: { resource: 'discord-avatar', discordTagHash: hashedTag },
+            convertAnimatedToStatic: true,
+          },
         );
         if (!discordAvatar) {
           rendererLog.info('renderProfileCard', 'discord-avatar:fallback', {
@@ -994,7 +1066,7 @@ class MiddlemanCardGenerator {
             robloxAvatarUrl,
             this.imageCache,
             `roblox:${robloxAvatarUrl}`,
-            { resource: 'roblox-avatar', robloxUserHash },
+            { context: { resource: 'roblox-avatar', robloxUserHash } },
           );
         }
 
