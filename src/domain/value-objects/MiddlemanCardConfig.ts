@@ -48,9 +48,9 @@ const PatternSchema = z.enum(['none', 'grid', 'waves', 'circuit', 'mesh']);
 const StarStyleSchema = z.enum(['sharp', 'rounded']);
 const FrameStyleSchema = z.enum(['rounded', 'cut']);
 const MediaTypeSchema = z
-  .literal('image', {
+  .enum(['image', 'gif'], {
     errorMap: () => ({
-      message: 'Only static PNG media is supported. Remove GIF or video references.',
+      message: 'Only image or GIF media is supported. Animated GIFs will be flattened to PNG.',
     }),
   })
   .default('image');
@@ -142,7 +142,7 @@ export interface MiddlemanCardChip {
 }
 
 export interface MiddlemanCardBackground {
-  readonly type: 'image';
+  readonly type: 'image' | 'gif';
   readonly url: string;
   readonly fit: z.infer<typeof MediaFitSchema>;
   readonly position: string;
@@ -159,7 +159,7 @@ export interface MiddlemanCardBorder {
 }
 
 export interface MiddlemanCardSideMedia {
-  readonly type: 'image';
+  readonly type: 'image' | 'gif';
   readonly url: string;
   readonly width: number;
   readonly fit: z.infer<typeof SideMediaFitSchema>;
