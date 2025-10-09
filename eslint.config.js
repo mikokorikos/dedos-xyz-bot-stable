@@ -8,7 +8,7 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '.eslintrc.cjs', 'simulation/**'],
+    ignores: ['dist/**', 'node_modules/**', '.eslintrc.cjs', 'simulation/**', 'src/media/**'],
   },
   {
     ...js.configs.recommended,

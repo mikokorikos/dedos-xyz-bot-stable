@@ -57,6 +57,8 @@ Campos opcionales:
 | `npm run clear:commands` | Elimina los comandos registrados. |
 | `npm run docker:up` / `npm run docker:down` | Levanta o detiene los contenedores de MySQL y Redis. |
 
+> ℹ️ Todas las tarjetas se generan como imágenes PNG estáticas. Cualquier configuración que intente usar GIF o video será rechazada automáticamente.
+
 ## 🧱 Arquitectura
 ```
 src/

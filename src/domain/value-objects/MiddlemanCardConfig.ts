@@ -48,9 +48,12 @@ const PatternSchema = z.enum(['none', 'grid', 'waves', 'circuit', 'mesh']);
 const StarStyleSchema = z.enum(['sharp', 'rounded']);
 const FrameStyleSchema = z.enum(['rounded', 'cut']);
 const MediaTypeSchema = z
-  .enum(['image', 'gif'])
-  .default('image')
-  .transform(() => 'image' as const);
+  .literal('image', {
+    errorMap: () => ({
+      message: 'Only static PNG media is supported. Remove GIF or video references.',
+    }),
+  })
+  .default('image');
 const MediaFitSchema = z.enum(['cover', 'contain', 'fill']);
 const SideMediaPositionSchema = z.enum(['left', 'right']);
 const SideMediaFitSchema = z.enum(['contain', 'cover']);

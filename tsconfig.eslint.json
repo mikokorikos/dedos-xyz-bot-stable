@@ -5,5 +5,5 @@
     "noEmit": true
   },
   "include": ["src", "scripts", "tests", "vitest.config.ts", "prisma/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "src/media"]
 }
