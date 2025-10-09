@@ -41,6 +41,7 @@ Campos opcionales:
 - `COMMAND_PREFIX` para personalizar el prefijo de comandos de texto (por defecto `;`)
 - `REDIS_URL` si activas caché o colas
 - `SENTRY_DSN` y `OTEL_EXPORTER_OTLP_ENDPOINT` para observabilidad futura
+- `DEDOS_HERO_IMAGE_URL` (opcional) apunta a un PNG remoto o a una ruta local relativa; si se omite no se adjuntará imagen hero por defecto
 
 ## 🛠️ Scripts disponibles
 | Script | Descripción |
@@ -52,6 +53,7 @@ Campos opcionales:
 | `npm run test` | Corre la suite de pruebas con Vitest. |
 | `npm run db:migrate` | Ejecuta migraciones de Prisma en desarrollo. |
 | `npm run deploy:commands` | Registra los comandos slash en Discord. |
+| `npm run render:cards-preview` | Genera tarjetas de ejemplo en `tmp/previews/` y muestra logs de la tubería de render. |
 | `npm run clear:commands` | Elimina los comandos registrados. |
 | `npm run docker:up` / `npm run docker:down` | Levanta o detiene los contenedores de MySQL y Redis. |
 
@@ -77,6 +79,32 @@ La interacción sigue el patrón Clean Architecture:
 2. Inicia el bot en modo desarrollo (`npm run dev`).
 3. Registra los comandos en tu servidor de pruebas (`npm run deploy:commands`).
 4. Itera sobre la lógica de negocio agregando casos de uso y pruebas.
+
+## 🧾 Registro estructurado
+Toda la tubería de generación de imágenes utiliza un logger estructurado basado en Pino. Cada función clave emite eventos con los campos:
+
+- `module`: origen lógico (`Renderer.MiddlemanCardGenerator`, `Renderer.Preview`, etc.).
+- `function`: nombre de la rutina (`renderProfileCard`, `fetchImageBuffer`, ...).
+- `status`: `start`, etapas intermedias (`download:start`, `cache:lookup`, ...) o el resultado final (`success`, `error`).
+- `durationMs`: tiempo transcurrido en milisegundos desde el inicio de la función.
+- Metadatos adicionales (hashes de identificadores, banderas de caché, URLs utilizadas) sin exponer PII directa.
+
+Ejemplo real al ejecutar `npm run render:cards-preview`:
+
+```json
+{
+  "module": "Renderer.MiddlemanCardGenerator",
+  "function": "renderProfileCard",
+  "status": "success",
+  "discordTagHash": "c1f4a7c8e6c5f0c85c3f0f7f4b1cd10a6f2fbb13",
+  "cacheHit": false,
+  "attachmentName": "middleman-profile-card.png",
+  "durationMs": 182.34,
+  "timestamp": "2024-11-24T18:42:11.219Z"
+}
+```
+
+Utiliza `npm run render:cards-preview` para generar una corrida completa con logs ordenados cronológicamente y artefactos PNG en `tmp/previews/`. Esta utilidad es ideal para depurar la descarga de avatares de Roblox, validar errores de red y comprobar la duración de cada paso del pipeline.
 
 ## 🗂️ Migraciones de base de datos
 - El schema propuesto reside en `prisma/schema.prisma`.

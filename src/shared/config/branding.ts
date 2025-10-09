@@ -16,14 +16,11 @@ interface DedosBrandConfig {
     readonly iconURL?: string;
   };
   readonly thumbnailURL: string;
-  readonly imageURL: string;
+  readonly imageURL: string | null;
 }
 
-const gifEnv = process.env['DEDOS_GIF_URL']?.trim();
-const DEFAULT_GIF_URL =
-  gifEnv && gifEnv.startsWith('http')
-    ? gifEnv
-    : 'https://raw.githubusercontent.com/mikokorikos/dedos-shop-utilities/codex/fix-errors-in-middleman-logic/dedosgif.gif';
+const heroImageEnv = process.env['DEDOS_HERO_IMAGE_URL']?.trim();
+const DEFAULT_HERO_IMAGE_SOURCE = heroImageEnv && heroImageEnv.length > 0 ? heroImageEnv : null;
 
 const brandIconEnv = process.env['DEDOS_BRAND_ICON_URL']?.trim();
 const DEFAULT_ICON_URL =
@@ -42,7 +39,7 @@ export const DEDOS_BRAND: DedosBrandConfig = Object.freeze({
     iconURL: brandIconEnv && brandIconEnv.startsWith('http') ? brandIconEnv : DEFAULT_ICON_URL,
   },
   thumbnailURL: brandIconEnv && brandIconEnv.startsWith('http') ? brandIconEnv : DEFAULT_ICON_URL,
-  imageURL: DEFAULT_GIF_URL,
+  imageURL: DEFAULT_HERO_IMAGE_SOURCE,
 });
 
 export const resolveDedosAsset = (relativePath: string): string => resolve(process.cwd(), relativePath);

@@ -15,7 +15,7 @@ import type {
   MiddlemanCardVouchPanel,
 } from '@/domain/value-objects/MiddlemanCardConfig';
 import { addAlphaToHex, DEFAULT_MIDDLEMAN_CARD_CONFIG } from '@/domain/value-objects/MiddlemanCardConfig';
-import { logger } from '@/shared/logger/pino';
+import { createModuleLogger } from '@/shared/logger/logger';
 
 const CARD_WIDTH = 1280;
 const CARD_HEIGHT = 460;
@@ -82,6 +82,8 @@ interface ImageCacheEntry {
   readonly expiresAt: number;
 }
 
+const rendererLog = createModuleLogger('Renderer.MiddlemanCardGenerator');
+
 const formatNumber = (value: number): string => {
   if (value >= 1_000_000) {
     return `${Math.round((value / 1_000_000) * 10) / 10}M`;
@@ -104,6 +106,8 @@ const createCacheKey = (type: string, payload: unknown): string => {
 
   return createHash('sha1').update(`${type}:${serialized}`).digest('hex');
 };
+
+const hashForLog = (value: string): string => createHash('sha1').update(value).digest('hex');
 
 const traceRoundedRectPath = (
   ctx: SKRSContext2D,
@@ -432,39 +436,76 @@ const drawVouchPanel = (
   ctx.fillText(ratingLabel, x + 24, y + 158);
 };
 
-const fetchImageBuffer = async (url: string): Promise<Buffer> => {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; DedosShopBot/1.0; +https://dedos.xyz)',
-      Accept: 'image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5',
-    },
+interface FetchImageOptions {
+  readonly context?: Record<string, unknown>;
+}
+
+const fetchImageBuffer = async (url: string, options?: FetchImageOptions): Promise<Buffer> => {
+  const run = rendererLog.start('fetchImageBuffer', {
+    url,
+    ...(options?.context ?? {}),
   });
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
+  try {
+    run.step('http:start', { url });
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DedosShopBot/1.0; +https://dedos.xyz)',
+        Accept: 'image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5',
+      },
+      redirect: 'follow',
+    });
+    run.step('http:complete', { statusCode: response.status });
 
-  return Buffer.from(await response.arrayBuffer());
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    run.success({ bytes: buffer.length, statusCode: response.status });
+    return buffer;
+  } catch (error) {
+    run.error(error, { reason: error instanceof Error ? error.message : 'unknown' });
+    throw error;
+  }
 };
 
 const loadRemoteImage = async (
   url: string,
   cache: Map<string, ImageCacheEntry>,
   cacheKey: string,
+  context?: Record<string, unknown>,
 ): Promise<CanvasImageSource | null> => {
+  const run = rendererLog.start('loadRemoteImage', {
+    url,
+    cacheKey,
+    ...(context ?? {}),
+  });
+
   const now = Date.now();
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
+    run.success({ cacheHit: true, expiresAt: cached.expiresAt });
     return cached.image;
   }
 
+  if (cached) {
+    run.step('cache:expired', { expiredAt: cached.expiresAt });
+    cache.delete(cacheKey);
+  }
+
   try {
-    const buffer = await fetchImageBuffer(url);
+    run.step('download:start', { url });
+    const buffer = await fetchImageBuffer(url, { context: context ?? {} });
+    run.step('decode:start', { bytes: buffer.length });
     const image = await loadImage(buffer);
-    cache.set(cacheKey, { image, expiresAt: now + CACHE_TTL_MS });
+    const expiresAt = Date.now() + CACHE_TTL_MS;
+    cache.set(cacheKey, { image, expiresAt });
+    run.success({ cacheHit: false, expiresAt });
     return image;
   } catch (error) {
-    logger.warn({ err: error, url }, 'No se pudo descargar la imagen remota.');
+    run.error(error, { reason: error instanceof Error ? error.message : 'download-failed' });
     return null;
   }
 };
@@ -477,13 +518,21 @@ const fetchRobloxAvatarUrl = async (robloxUserId: bigint): Promise<string> => {
     'https://thumbnails.roblox.com/v1/users/avatar-headshot?' +
     `userIds=${robloxUserId.toString()}&size=352x352&format=Png&isCircular=false`;
 
+  const run = rendererLog.start('fetchRobloxAvatarUrl', {
+    robloxUserId: robloxUserId.toString(),
+    url: apiUrl,
+  });
+
   try {
+    run.step('request:start');
     const response = await fetch(apiUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; DedosShopBot/1.0; +https://dedos.xyz)',
         Accept: 'application/json',
       },
+      redirect: 'follow',
     });
+    run.step('request:complete', { statusCode: response.status });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -495,16 +544,54 @@ const fetchRobloxAvatarUrl = async (robloxUserId: bigint): Promise<string> => {
 
     const entry = data.data?.[0];
     if (entry?.imageUrl && entry.state !== 'Pending') {
+      run.success({ source: 'roblox', state: entry.state ?? 'Completed' });
       return entry.imageUrl;
     }
-  } catch (error) {
-    logger.warn(
-      { err: error, robloxUserId: robloxUserId.toString() },
-      'No se pudo obtener la imagen de Roblox desde thumbnails.roblox.com.',
-    );
-  }
 
-  return buildRobloxAvatarFallbackUrl(robloxUserId);
+    const fallbackUrl = buildRobloxAvatarFallbackUrl(robloxUserId);
+    run.success({ source: 'fallback', state: entry?.state ?? 'Unknown' });
+    return fallbackUrl;
+  } catch (error) {
+    const fallbackUrl = buildRobloxAvatarFallbackUrl(robloxUserId);
+    run.error(error, { fallbackUrl });
+    return fallbackUrl;
+  }
+};
+
+const validateRobloxAvatarUrl = async (
+  robloxUserId: bigint,
+  avatarUrl: string,
+): Promise<boolean> => {
+  const run = rendererLog.start('validateRobloxAvatarUrl', {
+    robloxUserId: robloxUserId.toString(),
+    url: avatarUrl,
+  });
+
+  try {
+    const response = await fetch(avatarUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DedosShopBot/1.0; +https://dedos.xyz)',
+        Accept: 'image/png,image/*;q=0.8',
+      },
+      redirect: 'follow',
+    });
+
+    if (response.status === 405 || response.status === 501) {
+      run.success({ statusCode: response.status, validation: 'skipped-method-not-allowed' });
+      return true;
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    run.success({ statusCode: response.status });
+    return true;
+  } catch (error) {
+    run.error(error, { reason: error instanceof Error ? error.message : 'validation-failed' });
+    return false;
+  }
 };
 
 const getImageMetrics = (
@@ -528,29 +615,45 @@ const drawBackgroundMedia = async (
   background: MiddlemanCardBackground,
   imageCache: Map<string, ImageCacheEntry>,
 ): Promise<boolean> => {
-  const cacheKey = `bg:${background.url}`;
-  const image = await loadRemoteImage(background.url, imageCache, cacheKey);
-  if (!image) {
+  const run = rendererLog.start('drawBackgroundMedia', {
+    url: background.url,
+    fit: background.fit,
+    opacity: background.opacity,
+  });
+
+  try {
+    const cacheKey = `bg:${background.url}`;
+    const image = await loadRemoteImage(background.url, imageCache, cacheKey, {
+      layer: 'background',
+    });
+    if (!image) {
+      run.success({ result: 'skipped', reason: 'image-unavailable' });
+      return false;
+    }
+
+    const metrics = getImageMetrics(image);
+    if (!metrics) {
+      run.success({ result: 'skipped', reason: 'unknown-dimensions' });
+      return false;
+    }
+
+    const { width, height } = getScaledDimensions(metrics, background, CARD_WIDTH, CARD_HEIGHT);
+    const extended = ctx as ExtendedContext;
+    ctx.save();
+    if (extended.filter !== undefined) {
+      extended.filter = `blur(${background.blur}px) saturate(${background.saturate})`;
+    }
+    if (extended.globalAlpha !== undefined) {
+      extended.globalAlpha = background.opacity;
+    }
+    ctx.drawImage(image, (CARD_WIDTH - width) / 2, (CARD_HEIGHT - height) / 2, width, height);
+    ctx.restore();
+    run.success({ result: 'drawn', width, height });
+    return true;
+  } catch (error) {
+    run.error(error, { reason: 'draw-failed' });
     return false;
   }
-
-  const metrics = getImageMetrics(image);
-  if (!metrics) {
-    return false;
-  }
-
-  const { width, height } = getScaledDimensions(metrics, background, CARD_WIDTH, CARD_HEIGHT);
-  const extended = ctx as ExtendedContext;
-  ctx.save();
-  if (extended.filter !== undefined) {
-    extended.filter = `blur(${background.blur}px) saturate(${background.saturate})`;
-  }
-  if (extended.globalAlpha !== undefined) {
-    extended.globalAlpha = background.opacity;
-  }
-  ctx.drawImage(image, (CARD_WIDTH - width) / 2, (CARD_HEIGHT - height) / 2, width, height);
-  ctx.restore();
-  return true;
 };
 
 const drawBannerBackground = async (
@@ -558,8 +661,10 @@ const drawBannerBackground = async (
   bannerUrl: string,
   imageCache: Map<string, ImageCacheEntry>,
 ): Promise<boolean> => {
+  const run = rendererLog.start('drawBannerBackground', { url: bannerUrl });
+
   const background: MiddlemanCardBackground = {
-    type: bannerUrl.toLowerCase().endsWith('.gif') ? 'gif' : 'image',
+    type: 'image',
     url: bannerUrl,
     fit: 'cover',
     position: 'center',
@@ -570,6 +675,7 @@ const drawBannerBackground = async (
 
   const rendered = await drawBackgroundMedia(ctx, background, imageCache);
   if (!rendered) {
+    run.success({ result: 'skipped' });
     return false;
   }
 
@@ -577,6 +683,7 @@ const drawBannerBackground = async (
   ctx.fillStyle = addAlphaToHex('#050611', 0.35);
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   ctx.restore();
+  run.success({ result: 'drawn' });
   return true;
 };
 
@@ -618,29 +725,40 @@ const drawBackgroundLayer = async (
   imageCache: Map<string, ImageCacheEntry>,
   bannerUrl?: string | null,
 ): Promise<void> => {
-  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  gradient.addColorStop(0, config.gradientStart);
-  gradient.addColorStop(1, config.gradientEnd);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  const run = rendererLog.start('drawBackgroundLayer', {
+    layout: config.layout,
+    hasBanner: Boolean(bannerUrl),
+    hasBackground: Boolean(config.background),
+  });
 
-  const hasBanner = bannerUrl ? await drawBannerBackground(ctx, bannerUrl, imageCache) : false;
-  const hasMedia =
-    hasBanner || !config.background
-      ? hasBanner
-      : await drawBackgroundMedia(ctx, config.background, imageCache);
-  if (!hasMedia) {
-    drawPattern(ctx, config.pattern, config.accent, CARD_WIDTH, CARD_HEIGHT);
+  try {
+    const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    gradient.addColorStop(0, config.gradientStart);
+    gradient.addColorStop(1, config.gradientEnd);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+    const hasBanner = bannerUrl ? await drawBannerBackground(ctx, bannerUrl, imageCache) : false;
+    const hasMedia =
+      hasBanner || !config.background
+        ? hasBanner
+        : await drawBackgroundMedia(ctx, config.background, imageCache);
+    if (!hasMedia) {
+      drawPattern(ctx, config.pattern, config.accent, CARD_WIDTH, CARD_HEIGHT);
+    }
+
+    const radial = ctx.createRadialGradient(CARD_WIDTH - 220, 120, 36, CARD_WIDTH - 180, 200, 420);
+    radial.addColorStop(0, addAlphaToHex(config.accentSoft, 0.9));
+    radial.addColorStop(1, addAlphaToHex(config.accentSoft, 0));
+    ctx.fillStyle = radial;
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+    ctx.fillStyle = addAlphaToHex('#0B0D1A', 0.45);
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    run.success({ usedBanner: hasBanner, usedBackgroundMedia: hasMedia });
+  } catch (error) {
+    run.error(error, { reason: 'background-layer-failed' });
   }
-
-  const radial = ctx.createRadialGradient(CARD_WIDTH - 220, 120, 36, CARD_WIDTH - 180, 200, 420);
-  radial.addColorStop(0, addAlphaToHex(config.accentSoft, 0.9));
-  radial.addColorStop(1, addAlphaToHex(config.accentSoft, 0));
-  ctx.fillStyle = radial;
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-
-  ctx.fillStyle = addAlphaToHex('#0B0D1A', 0.45);
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 };
 
 const drawSideMedia = async (
@@ -648,14 +766,24 @@ const drawSideMedia = async (
   sideMedia: MiddlemanCardSideMedia,
   imageCache: Map<string, ImageCacheEntry>,
 ): Promise<void> => {
+  const run = rendererLog.start('drawSideMedia', {
+    url: sideMedia.url,
+    fit: sideMedia.fit,
+    position: sideMedia.position,
+  });
+
   const cacheKey = `side:${sideMedia.url}`;
-  const image = await loadRemoteImage(sideMedia.url, imageCache, cacheKey);
+  const image = await loadRemoteImage(sideMedia.url, imageCache, cacheKey, {
+    layer: 'side-media',
+  });
   if (!image) {
+    run.success({ result: 'skipped', reason: 'image-unavailable' });
     return;
   }
 
   const metrics = getImageMetrics(image);
   if (!metrics) {
+    run.success({ result: 'skipped', reason: 'unknown-dimensions' });
     return;
   }
 
@@ -677,6 +805,7 @@ const drawSideMedia = async (
   }
   ctx.drawImage(image, x, y, width, height);
   ctx.restore();
+  run.success({ result: 'drawn', width, height });
 };
 
 const drawWatermark = (ctx: SKRSContext2D, text: string): void => {
@@ -761,6 +890,12 @@ class MiddlemanCardGenerator {
     const config = profile?.cardConfig ?? DEFAULT_MIDDLEMAN_CARD_CONFIG;
     const scale = LAYOUT_SCALE[config.layout] ?? 1;
     const baseName = options.discordDisplayName?.trim() || options.discordTag.trim();
+    const profileUserHash = profile ? hashForLog(profile.userId.toString()) : undefined;
+    const robloxUserId = profile?.primaryIdentity?.robloxUserId ?? null;
+    const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
+    const hashedTag = hashForLog(options.discordTag);
+    const highlightProvided = Boolean(options.highlight ?? config.highlight ?? null);
+
     const cacheKey = createCacheKey('profile', {
       tag: options.discordTag,
       displayName: baseName,
@@ -771,12 +906,23 @@ class MiddlemanCardGenerator {
       cardConfig: config,
     });
 
+    const run = rendererLog.start('renderProfileCard', {
+      discordTagHash: hashedTag,
+      profileUserHash,
+      robloxUserHash,
+      highlightProvided,
+      hasBanner: Boolean(options.discordBannerUrl),
+    });
+
+    run.step('cache:lookup', { cacheKey });
     const cached = this.getFromCache(cacheKey, 'middleman-profile-card.png');
     if (cached) {
+      run.success({ cacheHit: true, attachmentName: 'middleman-profile-card.png' });
       return cached;
     }
 
     try {
+      run.step('canvas:create', { scale });
       const canvas = createCanvas(Math.round(CARD_WIDTH * scale), Math.round(CARD_HEIGHT * scale));
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
@@ -803,10 +949,20 @@ class MiddlemanCardGenerator {
 
       const initialsSource = profile?.primaryIdentity?.username ?? baseName;
       const fallback = createAvatarFallback(resolveInitials(initialsSource), AVATAR_SIZE);
-      const discordAvatar =
-        options.discordAvatarUrl
-          ? await loadRemoteImage(options.discordAvatarUrl, this.imageCache, `discord:${options.discordAvatarUrl}`)
-          : null;
+      let discordAvatar: CanvasImageSource | null = null;
+      if (options.discordAvatarUrl) {
+        discordAvatar = await loadRemoteImage(
+          options.discordAvatarUrl,
+          this.imageCache,
+          `discord:${options.discordAvatarUrl}`,
+          { resource: 'discord-avatar', discordTagHash: hashedTag },
+        );
+        if (!discordAvatar) {
+          rendererLog.info('renderProfileCard', 'discord-avatar:fallback', {
+            discordTagHash: hashedTag,
+          });
+        }
+      }
       const avatarSource = discordAvatar ?? fallback;
 
       const avatarX = 96;
@@ -829,22 +985,24 @@ class MiddlemanCardGenerator {
       ctx.fillText(options.discordTag, infoX, infoY + 60);
 
       const robloxUsername = profile?.primaryIdentity?.username ?? 'Sin registrar';
-      const robloxAvatarUrl = profile?.primaryIdentity?.robloxUserId
-        ? await fetchRobloxAvatarUrl(profile.primaryIdentity.robloxUserId)
-
-        : null;
       let robloxAvatar: CanvasImageSource | null = null;
-      if (robloxAvatarUrl) {
-        robloxAvatar = await loadRemoteImage(robloxAvatarUrl, this.imageCache, `roblox:${robloxAvatarUrl}`);
-        if (!robloxAvatar && profile?.primaryIdentity?.robloxUserId) {
-          logger.error(
-            {
-              robloxUserId: profile.primaryIdentity.robloxUserId.toString(),
-              robloxAvatarUrl,
-              username: robloxUsername,
-            },
-            'No se pudo cargar el avatar de Roblox; se usará un fallback con iniciales.',
+      if (robloxUserId) {
+        const robloxAvatarUrl = await fetchRobloxAvatarUrl(robloxUserId);
+        const isValid = await validateRobloxAvatarUrl(robloxUserId, robloxAvatarUrl);
+        if (isValid) {
+          robloxAvatar = await loadRemoteImage(
+            robloxAvatarUrl,
+            this.imageCache,
+            `roblox:${robloxAvatarUrl}`,
+            { resource: 'roblox-avatar', robloxUserHash },
           );
+        }
+
+        if (!robloxAvatar) {
+          rendererLog.info('renderProfileCard', 'roblox-avatar:fallback', {
+            robloxUserHash,
+            reason: isValid ? 'download-failed' : 'validation-failed',
+          });
         }
       }
       const robloxCircleX = infoX;
@@ -926,9 +1084,10 @@ class MiddlemanCardGenerator {
 
       const buffer = canvas.toBuffer('image/png');
       this.storeInCache(cacheKey, buffer);
+      run.success({ cacheHit: false, attachmentName: 'middleman-profile-card.png' });
       return new AttachmentBuilder(buffer, { name: 'middleman-profile-card.png' });
     } catch (error) {
-      logger.warn({ err: error }, 'No se pudo generar la tarjeta de perfil del middleman.');
+      run.error(error, { cacheKey });
       return null;
     }
   }
@@ -937,8 +1096,16 @@ class MiddlemanCardGenerator {
     options: TradeSummaryCardOptions,
   ): Promise<AttachmentBuilder | null> {
     const cacheKey = createCacheKey('trade-summary', options);
+    const run = rendererLog.start('renderTradeSummaryCard', {
+      ticketCodeHash: hashForLog(String(options.ticketCode)),
+      participantCount: options.participants.length,
+      status: options.status,
+    });
+
+    run.step('cache:lookup', { cacheKey });
     const cached = this.getFromCache(cacheKey, 'middleman-trade-card.png');
     if (cached) {
+      run.success({ cacheHit: true, attachmentName: 'middleman-trade-card.png' });
       return cached;
     }
 
@@ -948,7 +1115,16 @@ class MiddlemanCardGenerator {
       ctx.textBaseline = 'top';
 
       await drawBackgroundLayer(ctx, DEFAULT_MIDDLEMAN_CARD_CONFIG, this.imageCache);
-      drawRoundedRect(ctx, 48, 88, CARD_WIDTH - 96, CARD_HEIGHT - 160, 28, addAlphaToHex('#060815', 0.85), addAlphaToHex('#FFFFFF', 0.08));
+      drawRoundedRect(
+        ctx,
+        48,
+        88,
+        CARD_WIDTH - 96,
+        CARD_HEIGHT - 160,
+        28,
+        addAlphaToHex('#060815', 0.85),
+        addAlphaToHex('#FFFFFF', 0.08),
+      );
 
       ctx.fillStyle = '#ffffff';
       ctx.font = '700 46px "Segoe UI", sans-serif';
@@ -1024,17 +1200,26 @@ class MiddlemanCardGenerator {
 
       const buffer = canvas.toBuffer('image/png');
       this.storeInCache(cacheKey, buffer);
+      run.success({ cacheHit: false, attachmentName: 'middleman-trade-card.png' });
       return new AttachmentBuilder(buffer, { name: 'middleman-trade-card.png' });
     } catch (error) {
-      logger.warn({ err: error }, 'No se pudo generar la tarjeta de resumen de trade.');
+      run.error(error, { cacheKey });
       return null;
     }
   }
 
   public async renderStatsCard(options: StatsCardOptions): Promise<AttachmentBuilder | null> {
     const cacheKey = createCacheKey('stats-card', options);
+    const run = rendererLog.start('renderStatsCard', {
+      titleHash: hashForLog(options.title),
+      metricCount: options.metrics.length,
+      hasSubtitle: Boolean(options.subtitle),
+    });
+
+    run.step('cache:lookup', { cacheKey });
     const cached = this.getFromCache(cacheKey, 'dedos-stats-card.png');
     if (cached) {
+      run.success({ cacheHit: true, attachmentName: 'dedos-stats-card.png' });
       return cached;
     }
 
@@ -1044,7 +1229,16 @@ class MiddlemanCardGenerator {
       ctx.textBaseline = 'top';
 
       await drawBackgroundLayer(ctx, DEFAULT_MIDDLEMAN_CARD_CONFIG, this.imageCache);
-      drawRoundedRect(ctx, 64, 96, CARD_WIDTH - 128, CARD_HEIGHT - 176, 28, addAlphaToHex('#060815', 0.85), addAlphaToHex('#FFFFFF', 0.08));
+      drawRoundedRect(
+        ctx,
+        64,
+        96,
+        CARD_WIDTH - 128,
+        CARD_HEIGHT - 176,
+        28,
+        addAlphaToHex('#060815', 0.85),
+        addAlphaToHex('#FFFFFF', 0.08),
+      );
 
       ctx.fillStyle = '#ffffff';
       ctx.font = '700 44px "Segoe UI", sans-serif';
@@ -1085,9 +1279,10 @@ class MiddlemanCardGenerator {
 
       const buffer = canvas.toBuffer('image/png');
       this.storeInCache(cacheKey, buffer);
+      run.success({ cacheHit: false, attachmentName: 'dedos-stats-card.png' });
       return new AttachmentBuilder(buffer, { name: 'dedos-stats-card.png' });
     } catch (error) {
-      logger.warn({ err: error }, 'No se pudo generar la tarjeta de estadísticas.');
+      run.error(error, { cacheKey });
       return null;
     }
   }

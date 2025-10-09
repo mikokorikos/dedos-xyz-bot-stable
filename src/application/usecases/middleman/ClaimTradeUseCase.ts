@@ -91,8 +91,8 @@ export class ClaimTradeUseCase {
     })();
     const middlemanBannerUrl =
       middlemanUser && typeof middlemanUser.bannerURL === 'function'
-        ? middlemanUser.bannerURL({ size: 2048, forceStatic: false, extension: 'gif' }) ??
-          middlemanUser.bannerURL({ size: 2048, forceStatic: false }) ??
+        ? middlemanUser.bannerURL({ size: 2048, forceStatic: true, extension: 'png' }) ??
+          middlemanUser.bannerURL({ size: 2048, forceStatic: true }) ??
           undefined
         : undefined;
 

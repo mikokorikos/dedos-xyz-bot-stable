@@ -2,6 +2,9 @@
 // RUTA: src/shared/utils/branding.ts
 // ============================================================================
 
+import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
+
 import type {
   APIAttachment,
   APIEmbed,
@@ -20,14 +23,28 @@ import type { Stream } from 'stream';
 
 import { DEDOS_BRAND, resolveDedosAsset } from '@/shared/config/branding';
 
-const DEDOS_GIF_NAME = 'dedosgif.gif';
+const heroImageSource = typeof DEDOS_BRAND.imageURL === 'string' && DEDOS_BRAND.imageURL.length > 0
+  ? DEDOS_BRAND.imageURL
+  : null;
 
-const resolveGifSource = (): string => {
-  if (DEDOS_BRAND.imageURL.startsWith('http')) {
-    return DEDOS_BRAND.imageURL;
+const heroImageRelativePath = heroImageSource && !heroImageSource.startsWith('http') ? heroImageSource : null;
+const heroImageName = heroImageRelativePath ? basename(heroImageRelativePath) : null;
+const heroImageAbsolutePath = heroImageRelativePath ? resolveDedosAsset(heroImageRelativePath) : null;
+
+const resolveHeroImageSource = (): string | null => {
+  if (!heroImageSource) {
+    return null;
   }
 
-  return `attachment://${DEDOS_GIF_NAME}`;
+  if (!heroImageRelativePath) {
+    return heroImageSource;
+  }
+
+  if (!heroImageName || !heroImageAbsolutePath || !existsSync(heroImageAbsolutePath)) {
+    return null;
+  }
+
+  return `attachment://${heroImageName}`;
 };
 
 export interface BrandDecorations {
@@ -36,8 +53,19 @@ export interface BrandDecorations {
   readonly timestamp?: Date;
 }
 
-const createGifAttachment = (): AttachmentBuilder =>
-  new DiscordAttachmentBuilder(resolveDedosAsset(DEDOS_GIF_NAME), { name: DEDOS_GIF_NAME });
+const createHeroImageAttachment = (): AttachmentBuilder | null => {
+  if (!heroImageRelativePath || !heroImageName || !heroImageAbsolutePath) {
+    return null;
+  }
+
+  if (!existsSync(heroImageAbsolutePath)) {
+    return null;
+  }
+
+  return new DiscordAttachmentBuilder(heroImageAbsolutePath, {
+    name: heroImageName,
+  });
+};
 
 type AttachmentLike =
   | BufferResolvable
@@ -52,20 +80,23 @@ interface BrandableOptions {
   files?: readonly AttachmentLike[];
 }
 
-const ensureGifIncluded = (
+const ensureHeroImageIncluded = (
   files: readonly AttachmentLike[] | undefined,
 ): readonly AttachmentLike[] | undefined => {
-  if (DEDOS_BRAND.imageURL.startsWith('http')) {
+  if (!heroImageRelativePath || !heroImageName || !heroImageAbsolutePath) {
     return files;
   }
 
   const existingFiles = files ? Array.from(files) : [];
   const alreadyIncluded = existingFiles.some(
-    (file) => file instanceof DiscordAttachmentBuilder && file.name === DEDOS_GIF_NAME,
+    (file) => file instanceof DiscordAttachmentBuilder && file.name === heroImageName,
   );
 
   if (!alreadyIncluded) {
-    existingFiles.push(createGifAttachment());
+    const attachment = createHeroImageAttachment();
+    if (attachment) {
+      existingFiles.push(attachment);
+    }
   }
 
   return existingFiles;
@@ -100,8 +131,9 @@ export const applyDedosBrand = <T extends EmbedBuilder>(
   }
 
   const needsHeroImage = decorations.useHeroImage === true;
-  if (needsHeroImage && !embed.data.image) {
-    embed.setImage(resolveGifSource());
+  const heroImageUrl = resolveHeroImageSource();
+  if (needsHeroImage && heroImageUrl && !embed.data.image) {
+    embed.setImage(heroImageUrl);
   }
 
   return embed;
@@ -126,12 +158,17 @@ const decorateEmbeds = (
 
 const hasHeroImage = (
   embeds: readonly (APIEmbed | JSONEncodable<APIEmbed> | EmbedBuilder)[] | undefined,
+  expectedUrl: string | null,
 ): boolean => {
   if (!embeds) {
     return false;
   }
 
-  const heroUrl = resolveGifSource();
+  if (!expectedUrl) {
+    return false;
+  }
+
+  const heroUrl = expectedUrl;
   return embeds.some((embed) => {
     if (embed instanceof EmbedBuilder) {
       return embed.data.image?.url === heroUrl;
@@ -155,8 +192,9 @@ const withBranding = <T extends BrandableOptions>(
   }
 
   const embeds = decorateEmbeds(options.embeds, decorations);
-  const needsHeroImage = decorations.useHeroImage === true || hasHeroImage(embeds);
-  const files = needsHeroImage ? ensureGifIncluded(options.files) : options.files;
+  const heroUrl = resolveHeroImageSource();
+  const needsHeroImage = Boolean(heroUrl) && (decorations.useHeroImage === true || hasHeroImage(embeds, heroUrl));
+  const files = needsHeroImage ? ensureHeroImageIncluded(options.files) : options.files;
 
   return {
     ...options,
