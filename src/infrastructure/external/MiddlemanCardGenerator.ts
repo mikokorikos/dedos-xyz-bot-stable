@@ -1024,7 +1024,7 @@ class MiddlemanCardGenerator {
         discordAvatar = await loadRemoteImage(
           options.discordAvatarUrl,
           this.imageCache,
-          discordCacheKey,
+          `discord:${options.discordAvatarUrl}`,
           {
             context: { resource: 'discord-avatar', discordTagHash: hashedTag },
             convertAnimatedToStatic: true,
@@ -1073,10 +1073,14 @@ class MiddlemanCardGenerator {
       if (robloxUserId) {
         const robloxAvatarUrl = await fetchRobloxAvatarUrl(robloxUserId);
         const isValid = await validateRobloxAvatarUrl(robloxUserId, robloxAvatarUrl);
-        rendererLog.info('renderProfileCard', 'roblox-avatar:validation', {
-          robloxUserHash,
-          validation: isValid ? 'passed' : 'failed',
-        });
+        if (isValid) {
+          robloxAvatar = await loadRemoteImage(
+            robloxAvatarUrl,
+            this.imageCache,
+            `roblox:${robloxAvatarUrl}`,
+            { context: { resource: 'roblox-avatar', robloxUserHash } },
+          );
+        }
 
         const robloxCacheKey = `roblox:${robloxAvatarUrl}`;
         robloxAvatar = await loadRemoteImage(
