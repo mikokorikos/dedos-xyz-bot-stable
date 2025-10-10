@@ -1019,12 +1019,13 @@ class MiddlemanCardGenerator {
       const initialsSource = profile?.primaryIdentity?.username ?? baseName;
       const fallback = createAvatarFallback(resolveInitials(initialsSource), AVATAR_SIZE);
       let discordAvatar: CanvasImageSource | null = null;
+      let shouldCacheResult = true;
       if (options.discordAvatarUrl) {
         const discordCacheKey = `discord:${options.discordAvatarUrl}`;
         discordAvatar = await loadRemoteImage(
           options.discordAvatarUrl,
           this.imageCache,
-          `discord:${options.discordAvatarUrl}`,
+          discordCacheKey,
           {
             context: { resource: 'discord-avatar', discordTagHash: hashedTag },
             convertAnimatedToStatic: true,
@@ -1037,7 +1038,8 @@ class MiddlemanCardGenerator {
             cacheKey: discordCacheKey,
           });
         } else {
-          rendererLog.info('renderProfileCard', 'discord-avatar:fallback', {
+          shouldCacheResult = false;
+          rendererLog.warn('renderProfileCard', 'discord-avatar:fallback', {
             discordTagHash: hashedTag,
             reason: 'download-failed',
           });
@@ -1073,16 +1075,13 @@ class MiddlemanCardGenerator {
       if (robloxUserId) {
         const robloxAvatarUrl = await fetchRobloxAvatarUrl(robloxUserId);
         const isValid = await validateRobloxAvatarUrl(robloxUserId, robloxAvatarUrl);
-        if (isValid) {
-          robloxAvatar = await loadRemoteImage(
-            robloxAvatarUrl,
-            this.imageCache,
-            `roblox:${robloxAvatarUrl}`,
-            { context: { resource: 'roblox-avatar', robloxUserHash } },
-          );
-        }
-
         const robloxCacheKey = `roblox:${robloxAvatarUrl}`;
+        if (!isValid) {
+          rendererLog.warn('renderProfileCard', 'roblox-avatar:validation-failed', {
+            robloxUserHash,
+            cacheKey: robloxCacheKey,
+          });
+        }
         robloxAvatar = await loadRemoteImage(
           robloxAvatarUrl,
           this.imageCache,
@@ -1097,8 +1096,10 @@ class MiddlemanCardGenerator {
             validation: isValid ? 'passed' : 'failed',
           });
         } else {
-          rendererLog.info('renderProfileCard', 'roblox-avatar:fallback', {
+          shouldCacheResult = false;
+          rendererLog.warn('renderProfileCard', 'roblox-avatar:fallback', {
             robloxUserHash,
+            cacheKey: robloxCacheKey,
             validation: isValid ? 'passed' : 'failed',
             reason: 'download-failed',
           });
@@ -1184,8 +1185,20 @@ class MiddlemanCardGenerator {
       }
 
       const buffer = canvas.toBuffer('image/png');
-      this.storeInCache(cacheKey, buffer);
-      run.success({ cacheHit: false, attachmentName: 'middleman-profile-card.png' });
+      if (shouldCacheResult) {
+        this.storeInCache(cacheKey, buffer);
+      } else {
+        run.step('cache:skip', { reason: 'remote-assets-unavailable', cacheKey });
+        rendererLog.warn('renderProfileCard', 'cache:skipped', {
+          cacheKey,
+          reason: 'remote-assets-unavailable',
+        });
+      }
+      run.success({
+        cacheHit: false,
+        attachmentName: 'middleman-profile-card.png',
+        cacheStored: shouldCacheResult,
+      });
       return new AttachmentBuilder(buffer, { name: 'middleman-profile-card.png' });
     } catch (error) {
       run.error(error, { cacheKey });
