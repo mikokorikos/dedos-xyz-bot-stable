@@ -184,6 +184,22 @@ describe('OpenMiddlemanChannelUseCase', () => {
     );
   });
 
+  it('should accept partner IDs without mention formatting', async () => {
+    await useCase.execute(
+      {
+        userId: USER_ID,
+        guildId: GUILD_ID,
+        type: 'MM',
+        context: 'Un contexto suficientemente largo para crear ticket.',
+        partnerTag: PARTNER_ID,
+        categoryId: CATEGORY_ID,
+      },
+      guild,
+    );
+
+    expect(guild.members.fetch).toHaveBeenCalledWith(PARTNER_ID);
+  });
+
   it('should throw error if user has too many open tickets', async () => {
     repo.setOpenTickets(3);
 
