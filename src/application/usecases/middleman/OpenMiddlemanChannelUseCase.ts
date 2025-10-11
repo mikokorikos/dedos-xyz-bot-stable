@@ -22,24 +22,10 @@ import { sanitizeChannelName } from '@/shared/utils/discord.utils';
 import { snapshotFromMember } from '@/shared/utils/discordIdentity';
 
 const MAX_OPEN_TICKETS = 3;
-const SNOWFLAKE_EXTRACTOR = /\d{17,20}/u;
 
 interface TransactionProvider {
   $transaction<T>(fn: (context: unknown) => Promise<T>): Promise<T>;
 }
-
-const extractSnowflake = (value?: string): bigint | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const match = value.match(SNOWFLAKE_EXTRACTOR);
-  if (!match) {
-    return undefined;
-  }
-
-  return BigInt(match[0]);
-};
 
 export class OpenMiddlemanChannelUseCase {
   public constructor(
@@ -53,7 +39,16 @@ export class OpenMiddlemanChannelUseCase {
     dto: CreateMiddlemanTicketDTO,
     guild: Guild,
   ): Promise<{ ticket: Awaited<ReturnType<ITicketRepository['create']>>; channel: TextChannel }> {
+    this.logger.debug(
+      { input: dto, partnerTag: dto.partnerTag },
+      'Recibida solicitud para abrir ticket de middleman.',
+    );
+
     const payload = CreateMiddlemanTicketSchema.parse(dto);
+    this.logger.debug(
+      { partnerTag: payload.partnerTag, userId: payload.userId, guildId: payload.guildId },
+      'Entrada de middleman validada correctamente.',
+    );
     const ownerId = BigInt(payload.userId);
     const guildId = BigInt(payload.guildId);
 
@@ -72,13 +67,15 @@ export class OpenMiddlemanChannelUseCase {
 
     this.logger.debug({ channelName, guildId: payload.guildId }, 'Creando canal de middleman.');
 
-    const partnerId = extractSnowflake(payload.partnerTag);
+    const { partnerTag } = payload;
 
-    if (!partnerId) {
+    if (!partnerTag) {
       throw new ValidationFailedError({
         partnerTag: 'Debes mencionar o introducir el ID de la persona con la que harás el trade.',
       });
     }
+
+    const partnerId = BigInt(partnerTag);
 
     const ownerMember = await guild.members.fetch(payload.userId).catch(() => null);
     if (!ownerMember) {

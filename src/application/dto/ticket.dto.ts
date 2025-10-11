@@ -7,6 +7,24 @@ import { z } from 'zod';
 import { TicketType } from '@/domain/entities/types';
 import { SnowflakeSchema } from '@/shared/utils/validation';
 
+const USER_MENTION_PATTERN = /^<@!?(\d{17,20})>$/u;
+const USER_ID_PATTERN = /^\d{17,20}$/u;
+
+const PartnerIdentifierSchema = z
+  .string()
+  .trim()
+  .refine((value) => USER_MENTION_PATTERN.test(value) || USER_ID_PATTERN.test(value), {
+    message: 'Debe proporcionar la mencion o ID del companero',
+  })
+  .transform((value) => {
+    const mentionMatch = value.match(USER_MENTION_PATTERN);
+    if (mentionMatch) {
+      return mentionMatch[1];
+    }
+
+    return value;
+  });
+
 export const CreateGeneralTicketSchema = z.object({
   userId: SnowflakeSchema,
   guildId: SnowflakeSchema,
@@ -30,10 +48,7 @@ export const CreateMiddlemanTicketSchema = z.object({
   guildId: SnowflakeSchema,
   type: z.literal('MM'),
   context: z.string().min(10).max(1_000, 'Context must be 10-1000 chars'),
-  partnerTag: z
-    .string()
-    .trim()
-    .regex(/^(?:<@!?(\d{17,20})>|\d{17,20})$/u, 'Debe proporcionar la mencion o ID del companero'),
+  partnerTag: PartnerIdentifierSchema,
   categoryId: SnowflakeSchema,
 });
 
