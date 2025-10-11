@@ -50,13 +50,29 @@ import {
 import { MiddlemanModal } from '@/presentation/components/modals/MiddlemanModal';
 import { ReviewModal } from '@/presentation/components/modals/ReviewModal';
 import { TradeModal } from '@/presentation/components/modals/TradeModal';
-import { modalHandlers, registerButtonHandler, registerModalHandler } from '@/presentation/components/registry';
+import {
+  modalHandlers,
+  registerButtonHandler,
+  registerModalHandler,
+  registerSelectMenuHandler,
+} from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { buildClaimPromptMessage, buildTradeReadyMessage } from '@/presentation/middleman/messages';
+import {
+  buildMiddlemanInfoEmbed,
+  buildMiddlemanPanelMessage,
+  buildMiddlemanPanelReply,
+  MIDDLEMAN_PANEL_MENU_ID,
+} from '@/presentation/middleman/MiddlemanPanelBuilder';
 import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
 import { env } from '@/shared/config/env';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
-import { TicketNotFoundError, UnauthorizedActionError } from '@/shared/errors/domain.errors';
+import {
+  FinalizationPendingError,
+  TicketNotFoundError,
+  TradesNotConfirmedError,
+  UnauthorizedActionError,
+} from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
 import {
   brandEditReplyOptions,
@@ -133,25 +149,448 @@ const tradePanelRenderer = new TradePanelRenderer(ticketRepo, tradeRepo, logger,
 
 const middlemanSlashCommand = new SlashCommandBuilder()
   .setName('middleman')
-  .setDescription('Accede a las herramientas del sistema de middleman')
+  .setDescription('Publica el panel para abrir tickets de middleman')
   .setDMPermission(false);
+
+const tradeSlashCommand = new SlashCommandBuilder()
+  .setName('trade')
+  .setDescription('Acciones para administrar un trade con middleman')
+  .setDMPermission(false)
+  .addSubcommand((sub) =>
+    sub
+      .setName('finalize')
+      .setDescription('Solicita las confirmaciones finales de los traders'),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('close')
+      .setDescription('Cierra el trade cuando todos confirmaron la finalizacion'),
+  );
 
 export const middlemanCommand: Command = {
   data: middlemanSlashCommand,
   category: 'Middleman',
+  examples: ['/middleman', `${env.COMMAND_PREFIX}middleman`],
+  prefix: {
+    name: 'middleman',
+    aliases: ['middlemanpanel'],
+    async execute(message) {
+      const inGuild = await ensureMessageInGuild(message);
+      if (!inGuild) {
+        return;
+      }
+
+      const channel = await ensureTextChannelFromMessage(
+        message,
+        'El panel solo puede publicarse en canales de texto del servidor.',
+      );
+
+      if (!channel) {
+        return;
+      }
+
+      const panel = buildMiddlemanPanelMessage();
+      await channel.send(panel);
+    },
+  },
   async execute(interaction) {
-    await interaction.reply(
-      brandReplyOptions({
-        embeds: [
-          embedFactory.info({
-            title: 'Sistema de middleman',
-            description:
-              'Gestiona tus trades desde los botones disponibles en el ticket. Si necesitas soporte adicional, abre un ticket con el staff.',
+    const channel = interaction.channel;
+
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Canal no compatible',
+              description: 'El panel solo puede publicarse en canales de texto del servidor.',
+            }),
+          ],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return;
+    }
+
+    const panel = buildMiddlemanPanelReply();
+
+    await interaction.reply(panel);
+  },
+};
+
+const TRADE_COMMAND_USAGE = [
+  `Usa **${env.COMMAND_PREFIX}trade finalize** para publicar el panel de confirmacion final.`,
+  `Usa **${env.COMMAND_PREFIX}trade close** para cerrar el ticket una vez confirmadas las partes.`,
+].join('\n');
+
+const finalizeAliases = new Set(['finalize', 'finalizar', 'final', 'request', 'request-close', 'solicitar', 'solicitar-cierre']);
+const closeAliases = new Set(['close', 'cerrar', 'cierre']);
+
+export const tradeCommand: Command = {
+  data: tradeSlashCommand,
+  category: 'Middleman',
+  examples: [
+    '/trade finalize',
+    '/trade close',
+    `${env.COMMAND_PREFIX}trade finalize`,
+    `${env.COMMAND_PREFIX}trade close`,
+  ],
+  prefix: {
+    name: 'trade',
+    aliases: ['mmtrade'],
+    async execute(message, args) {
+      const rawAction = args[0]?.toLowerCase();
+
+      if (!rawAction) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.info({
+                title: 'Selecciona una accion',
+                description: TRADE_COMMAND_USAGE,
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
           }),
-        ],
-        flags: MessageFlags.Ephemeral,
-      }),
-    );
+        );
+
+        return;
+      }
+
+      const normalizedAction = rawAction.normalize('NFKC');
+      const isFinalize = finalizeAliases.has(normalizedAction);
+      const isClose = closeAliases.has(normalizedAction);
+
+      if (!isFinalize && !isClose) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Accion no reconocida',
+                description: TRADE_COMMAND_USAGE,
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+
+        return;
+      }
+
+      const inGuild = await ensureMessageInGuild(message);
+      if (!inGuild) {
+        return;
+      }
+
+      const channel = await ensureTextChannelFromMessage(
+        message,
+        'Este comando solo puede utilizarse dentro de un canal de texto del servidor.',
+      );
+
+      if (!channel) {
+        return;
+      }
+
+      const ticket = await ticketRepo.findByChannelId(BigInt(channel.id));
+
+      if (!ticket) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Ticket no encontrado',
+                description: 'Este canal no esta vinculado a un trade de middleman activo.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+
+        return;
+      }
+
+      try {
+        if (isFinalize) {
+          const result = await requestClosureUseCase.execute(
+            ticket.id,
+            BigInt(message.author.id),
+            channel,
+          );
+
+          const descriptionParts = [
+            'Se publico el panel de confirmacion para los traders.',
+            result.alreadyPending
+              ? 'Actualizamos la solicitud previa para mantener el proceso activo.'
+              : null,
+            result.completed
+              ? 'Todos los participantes ya confirmaron. Ejecuta **trade close** cuando estes listo para cerrar.'
+              : 'Solicita a los traders que confirmen con el boton verde antes de cerrar el ticket.',
+          ].filter((value): value is string => Boolean(value));
+
+          await message.reply(
+            brandMessageOptions({
+              embeds: [
+                embedFactory.success({
+                  title: 'Solicitud registrada',
+                  description: descriptionParts.join('\n\n'),
+                }),
+              ],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+
+          return;
+        }
+
+        await closeUseCase.execute(ticket.id, BigInt(message.author.id), channel);
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.success({
+                title: 'Trade cerrado',
+                description:
+                  'El ticket se marco como finalizado y se envio el formulario de reseña para los participantes.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+      } catch (error) {
+        if (error instanceof FinalizationPendingError) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [
+                embedFactory.info({
+                  title: 'Confirmaciones pendientes',
+                  description:
+                    'Publicamos el panel de cierre. Espera a que los traders confirmen antes de ejecutar el comando de cierre.',
+                }),
+              ],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+
+          return;
+        }
+
+        if (error instanceof TradesNotConfirmedError) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [
+                embedFactory.warning({
+                  title: 'Trade no listo para cierre',
+                  description:
+                    'Ambos traders deben registrar y confirmar sus datos antes de cerrar el ticket.',
+                }),
+              ],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+
+          return;
+        }
+
+        const { shouldLogStack, referenceId, embeds } = mapErrorToDiscordResponse(error);
+        const logPayload = {
+          err: error,
+          referenceId,
+          channelId: channel.id,
+          userId: message.author.id,
+          action: isFinalize ? 'finalize' : 'close',
+        };
+
+        if (shouldLogStack) {
+          logger.error(logPayload, 'Error inesperado al procesar comando trade con prefijo.');
+        } else {
+          logger.warn(logPayload, 'Error controlado al procesar comando trade con prefijo.');
+        }
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: embeds ?? [
+              embedFactory.error({
+                title: 'No se pudo completar la accion',
+                description: 'Ocurrio un error al procesar tu solicitud. Intentalo nuevamente mas tarde.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+      }
+    },
+  },
+  async execute(interaction) {
+    if (!interaction.inGuild() || !interaction.channel) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.error({
+              title: 'Accion no disponible',
+              description: 'Este comando solo puede utilizarse dentro de un servidor.',
+            }),
+          ],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+
+      return;
+    }
+
+    if (interaction.channel.type !== ChannelType.GuildText) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Canal no compatible',
+              description: 'Este comando solo puede utilizarse dentro de un canal de texto del servidor.',
+            }),
+          ],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+
+      return;
+    }
+
+    const textChannel = interaction.channel as TextChannel;
+    const action = interaction.options.getSubcommand();
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const ticket = await ticketRepo.findByChannelId(BigInt(textChannel.id));
+
+    if (!ticket) {
+      await interaction.editReply(
+        brandEditReplyOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Ticket no encontrado',
+              description: 'Este canal no esta vinculado a un trade de middleman activo.',
+            }),
+          ],
+        }),
+      );
+
+      return;
+    }
+
+    try {
+      if (action === 'finalize') {
+        const result = await requestClosureUseCase.execute(
+          ticket.id,
+          BigInt(interaction.user.id),
+          textChannel,
+        );
+
+        const descriptionParts = [
+          'Se publico el panel de confirmacion para los traders.',
+          result.alreadyPending
+            ? 'Actualizamos la solicitud previa para mantener el proceso activo.'
+            : null,
+          result.completed
+            ? 'Todos los participantes ya confirmaron. Ejecuta **/trade close** cuando estes listo para cerrar.'
+            : 'Solicita a los traders que confirmen con el boton verde antes de cerrar el ticket.',
+        ].filter((value): value is string => Boolean(value));
+
+        await interaction.editReply(
+          brandEditReplyOptions({
+            embeds: [
+              embedFactory.success({
+                title: 'Solicitud registrada',
+                description: descriptionParts.join('\n\n'),
+              }),
+            ],
+          }),
+        );
+
+        return;
+      }
+
+      if (action === 'close') {
+        await closeUseCase.execute(ticket.id, BigInt(interaction.user.id), textChannel);
+
+        await interaction.editReply(
+          brandEditReplyOptions({
+            embeds: [
+              embedFactory.success({
+                title: 'Trade cerrado',
+                description:
+                  'El ticket se marco como finalizado y se envio el formulario de reseña para los participantes.',
+              }),
+            ],
+          }),
+        );
+
+        return;
+      }
+
+      await interaction.editReply(
+        brandEditReplyOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Accion no disponible',
+              description: 'Selecciona una accion valida para continuar.',
+            }),
+          ],
+        }),
+      );
+    } catch (error) {
+      if (error instanceof FinalizationPendingError) {
+        await interaction.editReply(
+          brandEditReplyOptions({
+            embeds: [
+              embedFactory.info({
+                title: 'Confirmaciones pendientes',
+                description:
+                  'Publicamos el panel de cierre. Ejecuta este comando nuevamente cuando todos los traders hayan confirmado.',
+              }),
+            ],
+          }),
+        );
+
+        return;
+      }
+
+      if (error instanceof TradesNotConfirmedError) {
+        await interaction.editReply(
+          brandEditReplyOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Trade no listo para cierre',
+                description:
+                  'Ambos traders deben registrar y confirmar sus datos antes de cerrar el ticket.',
+              }),
+            ],
+          }),
+        );
+
+        return;
+      }
+
+      const { shouldLogStack, referenceId, embeds, ...payload } = mapErrorToDiscordResponse(error);
+      const logPayload = {
+        err: error,
+        referenceId,
+        interactionId: interaction.id,
+        channelId: textChannel.id,
+        action,
+      };
+
+      if (shouldLogStack) {
+        logger.error(logPayload, 'Error inesperado al procesar comando trade.');
+      } else {
+        logger.warn(logPayload, 'Error controlado al procesar comando trade.');
+      }
+
+      const { flags, ...editPayload } = payload;
+
+      await interaction.editReply(
+        brandEditReplyOptions({
+          ...editPayload,
+          embeds,
+        }),
+      );
+    }
   },
 };
 
@@ -203,6 +642,53 @@ const ensureTextChannelFromMessage = async (
 
   return channel;
 };
+
+
+registerSelectMenuHandler(MIDDLEMAN_PANEL_MENU_ID, async (interaction) => {
+  const [value] = interaction.values;
+
+  if (!value) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Opcion no valida',
+            description: 'Selecciona una opcion disponible del panel.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (value === 'info') {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildMiddlemanInfoEmbed()],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (value === 'open') {
+    await interaction.showModal(MiddlemanModal.build());
+    return;
+  }
+
+  await interaction.reply(
+    brandReplyOptions({
+      embeds: [
+        embedFactory.warning({
+          title: 'Opcion no disponible',
+          description: 'La accion seleccionada no esta configurada en el panel.',
+        }),
+      ],
+      flags: MessageFlags.Ephemeral,
+    }),
+  );
+});
 
 
 const resolvePartnerParticipantId = (
@@ -637,7 +1123,7 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
   const textChannel = channel;
 
   try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferUpdate();
 
     const ticket = await ticketRepo.findByChannelId(BigInt(channel.id));
 
@@ -653,8 +1139,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
 
     await tradePanelRenderer.render(textChannel, ticket.id);
 
-    await interaction.editReply(
-      brandEditReplyOptions({
+    await interaction.followUp(
+      brandReplyOptions({
         embeds: [
           embedFactory.success({
             title: 'Confirmacion registrada',
@@ -662,6 +1148,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
             description: 'Tu confirmacion quedo registrada correctamente.',
           }),
         ],
+
+        flags: MessageFlags.Ephemeral,
       }),
     );
 
@@ -700,11 +1188,11 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
     }
 
     if (interaction.deferred || interaction.replied) {
-      const { flags, ...editPayload } = payload;
+      const { flags: _flags, ...replyPayload } = payload;
 
-      await interaction.editReply(
-        brandEditReplyOptions({
-          ...editPayload,
+      await interaction.followUp(
+        brandReplyOptions({
+          ...replyPayload,
 
           embeds: embeds ?? [
             embedFactory.error({
@@ -713,6 +1201,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
               description: 'Int ntalo nuevamente o contacta al staff.',
             }),
           ],
+
+          flags: MessageFlags.Ephemeral,
         }),
       );
 

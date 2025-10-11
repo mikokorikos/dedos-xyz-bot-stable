@@ -33,7 +33,7 @@ export const CreateMiddlemanTicketSchema = z.object({
   partnerTag: z
     .string()
     .trim()
-    .regex(/^(?:<@!?(\d{17,20})>|\d{17,20})$/u, 'Debe proporcionar la mencion o ID del companero'),
+    .min(1, 'Debe proporcionar la mencion, ID o nombre del companero'),
   categoryId: SnowflakeSchema,
 });
 

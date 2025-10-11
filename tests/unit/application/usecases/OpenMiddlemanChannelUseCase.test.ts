@@ -1,4 +1,4 @@
-import type { Guild, GuildMember, TextChannel, User } from 'discord.js';
+import { Collection, type Guild, type GuildMember, type TextChannel, type User } from 'discord.js';
 import type { Logger } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +10,7 @@ import type {
   ITicketRepository,
 } from '@/domain/repositories/ITicketRepository';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
-import { TooManyOpenTicketsError } from '@/shared/errors/domain.errors';
+import { TooManyOpenTicketsError, ValidationFailedError } from '@/shared/errors/domain.errors';
 
 const USER_ID = '123456789012345678';
 const GUILD_ID = '876543210987654321';
@@ -29,10 +29,12 @@ const createMockUser = (id: string): User =>
 
 const createMockMember = (id: string): GuildMember =>
   ({
+    id,
     user: createMockUser(id),
     guild: { id: GUILD_ID } as unknown as Guild,
     nickname: null,
     joinedAt: new Date(),
+    displayName: `display-${id}`,
     roles: { cache: { map: (_callback: (role: { id: string }) => string) => [] as string[] } },
   } as unknown as GuildMember);
 
@@ -155,6 +157,15 @@ describe('OpenMiddlemanChannelUseCase', () => {
 
       throw new Error('Not found');
     });
+
+    const memberCache = new Collection<string, GuildMember>();
+    memberCache.set(USER_ID, ownerMember);
+    memberCache.set(PARTNER_ID, partnerMember);
+
+    (guild.members as unknown as { cache: Collection<string, GuildMember> }).cache = memberCache;
+    (guild.members as unknown as { search: ReturnType<typeof vi.fn> }).search = vi
+      .fn()
+      .mockResolvedValue(new Collection<string, GuildMember>());
   });
 
   it('should create ticket and channel successfully', async () => {
@@ -182,6 +193,119 @@ describe('OpenMiddlemanChannelUseCase', () => {
         expect.objectContaining({ id: PARTNER_ID }),
       ]),
     );
+  });
+
+  it('should accept partner IDs without mention formatting', async () => {
+    await useCase.execute(
+      {
+        userId: USER_ID,
+        guildId: GUILD_ID,
+        type: 'MM',
+        context: 'Un contexto suficientemente largo para crear ticket.',
+        partnerTag: PARTNER_ID,
+        categoryId: CATEGORY_ID,
+      },
+      guild,
+    );
+
+    expect(guild.members.fetch).toHaveBeenCalledWith(PARTNER_ID);
+  });
+
+  it('should reject partner role mentions', async () => {
+    await expect(
+      useCase.execute(
+        {
+          userId: USER_ID,
+          guildId: GUILD_ID,
+          type: 'MM',
+          context: 'Un contexto suficientemente largo para crear ticket.',
+          partnerTag: '<@&234567890123456789>',
+          categoryId: CATEGORY_ID,
+        },
+        guild,
+      ),
+    ).rejects.toBeInstanceOf(ValidationFailedError);
+  });
+
+  it('should resolve partner usernames from cache', async () => {
+    const partnerMember = createMockMember(PARTNER_ID);
+    partnerMember.user = {
+      ...partnerMember.user,
+      username: 'guapilloxajwu7303',
+      discriminator: '0',
+      globalName: 'Guapillox',
+    } as User;
+    partnerMember.displayName = 'Guapillox';
+
+    const cache = (guild.members as unknown as { cache: Collection<string, GuildMember> }).cache;
+    cache.set(PARTNER_ID, partnerMember);
+
+    (guild.members.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      if (id === USER_ID) {
+        return cache.get(USER_ID)!;
+      }
+
+      if (id === PARTNER_ID) {
+        return partnerMember;
+      }
+
+      throw new Error('Not found');
+    });
+
+    await useCase.execute(
+      {
+        userId: USER_ID,
+        guildId: GUILD_ID,
+        type: 'MM',
+        context: 'Un contexto suficientemente largo para crear ticket.',
+        partnerTag: 'guapilloxajwu7303',
+        categoryId: CATEGORY_ID,
+      },
+      guild,
+    );
+
+    expect(guild.members.fetch).toHaveBeenCalledWith(PARTNER_ID);
+  });
+
+  it('should fallback to guild search when cache misses', async () => {
+    const ownerMember = createMockMember(USER_ID);
+    const partnerMember = createMockMember(PARTNER_ID);
+
+    const cache = (guild.members as unknown as { cache: Collection<string, GuildMember> }).cache;
+    cache.clear();
+    cache.set(USER_ID, ownerMember);
+
+    (guild.members.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      if (id === USER_ID) {
+        return ownerMember;
+      }
+
+      if (id === PARTNER_ID) {
+        return partnerMember;
+      }
+
+      throw new Error('Not found');
+    });
+
+    const searchResults = new Collection<string, GuildMember>([[PARTNER_ID, partnerMember]]);
+    (guild.members as unknown as { search: ReturnType<typeof vi.fn> }).search = vi
+      .fn()
+      .mockResolvedValue(searchResults);
+
+    await useCase.execute(
+      {
+        userId: USER_ID,
+        guildId: GUILD_ID,
+        type: 'MM',
+        context: 'Un contexto suficientemente largo para crear ticket.',
+        partnerTag: 'display-234567890123456789',
+        categoryId: CATEGORY_ID,
+      },
+      guild,
+    );
+
+    expect((guild.members as unknown as { search: ReturnType<typeof vi.fn> }).search).toHaveBeenCalled();
+    expect(guild.members.fetch).toHaveBeenCalledWith(PARTNER_ID);
   });
 
   it('should throw error if user has too many open tickets', async () => {
