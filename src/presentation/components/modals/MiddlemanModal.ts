@@ -20,7 +20,7 @@ import { logger } from '@/shared/logger/pino';
 import { brandEditReplyOptions, brandReplyOptions } from '@/shared/utils/branding';
 
 const CONTEXT_ID = 'context';
-const PARTNER_ID = 'partner';
+const PARTNER_TAG_ID = 'partnerTag';
 export class MiddlemanModal {
   public static build(): ModalBuilder {
     return new ModalBuilder()
@@ -39,10 +39,11 @@ export class MiddlemanModal {
         ),
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
-            .setCustomId(PARTNER_ID)
+            .setCustomId(PARTNER_TAG_ID)
             .setLabel('Compañero (mención o ID)')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
+            .setPlaceholder('@usuario o ID')
             .setMaxLength(100),
         ),
       );
@@ -70,7 +71,7 @@ export class MiddlemanModal {
     }
 
     const context = interaction.fields.getTextInputValue(CONTEXT_ID);
-    const partnerTag = interaction.fields.getTextInputValue(PARTNER_ID);
+    const partnerTag = interaction.fields.getTextInputValue(PARTNER_TAG_ID).trim();
 
     if (!env.MIDDLEMAN_CATEGORY_ID) {
       await interaction.reply(
