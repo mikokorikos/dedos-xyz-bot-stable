@@ -12,7 +12,7 @@ import type { Logger } from 'pino';
 
 import { AddWarnUseCase } from '@/application/usecases/warn/AddWarnUseCase';
 import { OpenSupportTicketUseCase } from '@/application/usecases/tickets/OpenSupportTicketUseCase';
-import { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { ClaimTradeUseCase } from '@/application/usecases/middleman/ClaimTradeUseCase';
 import { SubmitTradeDataUseCase } from '@/application/usecases/middleman/SubmitTradeDataUseCase';
 import { ConfirmFinalizationUseCase } from '@/application/usecases/middleman/ConfirmFinalizationUseCase';
