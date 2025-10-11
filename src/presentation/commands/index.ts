@@ -24,7 +24,6 @@ const commands: Command[] = [
   rulesCommand,
   middlemanCommand,
   middlemanDirectoryCommand,
-  tradeCommand,
   statsCommand,
   ticketsPanelCommand,
 ];

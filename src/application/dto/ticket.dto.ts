@@ -7,6 +7,16 @@ import { z } from 'zod';
 import { TicketType } from '@/domain/entities/types';
 import { SnowflakeSchema } from '@/shared/utils/validation';
 
+const SNOWFLAKE_CAPTURE_PATTERN = /\d{17,20}/u;
+
+const PartnerIdentifierSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.match(SNOWFLAKE_CAPTURE_PATTERN)?.[0] ?? '')
+  .refine((value) => value.length > 0, {
+    message: 'Debe proporcionar la mencion o ID del companero',
+  });
+
 export const CreateGeneralTicketSchema = z.object({
   userId: SnowflakeSchema,
   guildId: SnowflakeSchema,
@@ -30,10 +40,7 @@ export const CreateMiddlemanTicketSchema = z.object({
   guildId: SnowflakeSchema,
   type: z.literal('MM'),
   context: z.string().min(10).max(1_000, 'Context must be 10-1000 chars'),
-  partnerTag: z
-    .string()
-    .trim()
-    .min(1, 'Debe proporcionar la mencion, ID o nombre del companero'),
+  partnerTag: PartnerIdentifierSchema,
   categoryId: SnowflakeSchema,
 });
 

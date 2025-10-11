@@ -28,8 +28,7 @@ import { brandMessageOptions } from '@/shared/utils/branding';
 import { sanitizeChannelName } from '@/shared/utils/discord.utils';
 import { snapshotFromMember } from '@/shared/utils/discordIdentity';
 
-const USER_MENTION_RE = /^<@!?(\d{17,20})>$/u;
-const USER_ID_RE = /^\d{17,20}$/u;
+const MAX_OPEN_TICKETS = 3;
 
 const extractUserIdFromMentionOrId = (input: string): string | undefined => {
   const mention = input.match(USER_MENTION_RE);
@@ -116,50 +115,6 @@ const resolveUserId = async (
 
   const cacheHits = resolveFromCache(guild, normalized);
 
-  if (cacheHits.length === 1) {
-    const [member] = cacheHits;
-    if (member) {
-      return member.id;
-    }
-  }
-
-  if (cacheHits.length > 1) {
-    throw buildAmbiguousError(cacheHits);
-  }
-
-  try {
-    const results = await guild.members.search({ query: input, limit: 5 });
-    const matches = Array.from(results.values());
-
-    if (matches.length === 1) {
-      const [member] = matches;
-      if (member) {
-        return member.id;
-      }
-    }
-
-    if (matches.length > 1) {
-      throw buildAmbiguousError(matches);
-    }
-  } catch (error) {
-    logger.debug(
-      { err: error, guildId: guild.id, query: input },
-      'Fallo la busqueda remota de miembros para resolver partnerTag.',
-    );
-  }
-
-  throw new ValidationFailedError({
-    partnerTag:
-      'No se pudo resolver el usuario. Pega la **mencion** (`<@...>`) o el **ID** (17-20 digitos).',
-  });
-};
-
-const MAX_OPEN_TICKETS = 3;
-
-interface TransactionProvider {
-  $transaction<T>(fn: (context: unknown) => Promise<T>): Promise<T>;
-}
-
 export class OpenMiddlemanChannelUseCase {
   public constructor(
     private readonly ticketRepo: ITicketRepository,
@@ -200,13 +155,15 @@ export class OpenMiddlemanChannelUseCase {
 
     this.logger.debug({ channelName, guildId: payload.guildId }, 'Creando canal de middleman.');
 
-    const partnerIdStr = await resolveUserId(payload.partnerTag, guild, this.logger);
-    this.logger.debug(
-      { partnerTag: payload.partnerTag, resolvedPartnerId: partnerIdStr },
-      'Identificador de companero resuelto correctamente.',
-    );
+    const { partnerTag } = payload;
 
-    const partnerId = BigInt(partnerIdStr);
+    if (!partnerTag) {
+      throw new ValidationFailedError({
+        partnerTag: 'Debes mencionar o introducir el ID de la persona con la que harás el trade.',
+      });
+    }
+
+    const partnerId = BigInt(partnerTag);
 
     const ownerMember = await guild.members.fetch(payload.userId).catch(() => null);
     if (!ownerMember) {
