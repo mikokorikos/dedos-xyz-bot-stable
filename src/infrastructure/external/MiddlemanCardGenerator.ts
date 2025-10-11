@@ -109,6 +109,46 @@ const createCacheKey = (type: string, payload: unknown): string => {
 
 const hashForLog = (value: string): string => createHash('sha1').update(value).digest('hex');
 
+const normalizeRobloxUserId = (value: unknown): bigint | null => {
+  if (value === null || typeof value === 'undefined') {
+    return null;
+  }
+
+  if (typeof value === 'bigint') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || !Number.isSafeInteger(value)) {
+      return null;
+    }
+
+    return BigInt(value);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      return BigInt(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value === 'object' && value !== null && 'toString' in value) {
+    const stringValue = String(value.toString());
+    if (stringValue && stringValue !== '[object Object]') {
+      return normalizeRobloxUserId(stringValue);
+    }
+  }
+
+  return null;
+};
+
 const traceRoundedRectPath = (
   ctx: SKRSContext2D,
   x: number,
@@ -891,8 +931,27 @@ class MiddlemanCardGenerator {
     const scale = LAYOUT_SCALE[config.layout] ?? 1;
     const baseName = options.discordDisplayName?.trim() || options.discordTag.trim();
     const profileUserHash = profile ? hashForLog(profile.userId.toString()) : undefined;
-    const robloxUserId = profile?.primaryIdentity?.robloxUserId ?? null;
+    const rawRobloxUserId = profile?.primaryIdentity?.robloxUserId;
+    const robloxUserIdType = rawRobloxUserId === null ? 'null' : typeof rawRobloxUserId;
+    const rawRobloxUserIdHash =
+      rawRobloxUserId === null || typeof rawRobloxUserId === 'undefined'
+        ? undefined
+        : hashForLog(String(rawRobloxUserId));
+    const robloxUserId = normalizeRobloxUserId(rawRobloxUserId as unknown);
+    if (rawRobloxUserId !== null && typeof rawRobloxUserId !== 'undefined' && !robloxUserId) {
+      rendererLog.warn('renderProfileCard', 'roblox-avatar:invalid-id', {
+        robloxUserIdType,
+        robloxUserIdHash: rawRobloxUserIdHash,
+      });
+    }
     const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
+    rendererLog.info('renderProfileCard', 'roblox-avatar:inspect', {
+      hasPrimaryIdentity: Boolean(profile?.primaryIdentity),
+      robloxUserIdType,
+      rawRobloxUserIdHash,
+      robloxUserHash,
+      normalized: Boolean(robloxUserId),
+    });
     const hashedTag = hashForLog(options.discordTag);
     const highlightProvided = Boolean(options.highlight ?? config.highlight ?? null);
 
@@ -986,9 +1045,23 @@ class MiddlemanCardGenerator {
 
       const robloxUsername = profile?.primaryIdentity?.username ?? 'Sin registrar';
       let robloxAvatar: CanvasImageSource | null = null;
+      let lastRobloxAvatarUrlHash: string | undefined;
       if (robloxUserId) {
+        rendererLog.info('renderProfileCard', 'roblox-avatar:fetch:start', {
+          robloxUserHash,
+        });
         const robloxAvatarUrl = await fetchRobloxAvatarUrl(robloxUserId);
+        lastRobloxAvatarUrlHash = hashForLog(robloxAvatarUrl);
+        rendererLog.info('renderProfileCard', 'roblox-avatar:fetch:complete', {
+          robloxUserHash,
+          avatarUrlHash: lastRobloxAvatarUrlHash,
+        });
         const isValid = await validateRobloxAvatarUrl(robloxUserId, robloxAvatarUrl);
+        rendererLog.info('renderProfileCard', 'roblox-avatar:validate', {
+          robloxUserHash,
+          avatarUrlHash: lastRobloxAvatarUrlHash,
+          isValid,
+        });
         if (isValid) {
           robloxAvatar = await loadRemoteImage(
             robloxAvatarUrl,
@@ -1001,9 +1074,16 @@ class MiddlemanCardGenerator {
         if (!robloxAvatar) {
           rendererLog.info('renderProfileCard', 'roblox-avatar:fallback', {
             robloxUserHash,
+            avatarUrlHash: lastRobloxAvatarUrlHash,
             reason: isValid ? 'download-failed' : 'validation-failed',
           });
         }
+      } else {
+        rendererLog.info('renderProfileCard', 'roblox-avatar:skip', {
+          reason: 'missing-id',
+          robloxUserIdType,
+          rawRobloxUserIdHash,
+        });
       }
       const robloxCircleX = infoX;
       const robloxCircleY = infoY + 100;
