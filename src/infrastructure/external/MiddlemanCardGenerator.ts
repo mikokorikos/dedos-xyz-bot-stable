@@ -932,16 +932,11 @@ class MiddlemanCardGenerator {
     const baseName = options.discordDisplayName?.trim() || options.discordTag.trim();
     const profileUserHash = profile ? hashForLog(profile.userId.toString()) : undefined;
     const rawRobloxUserId = profile?.primaryIdentity?.robloxUserId;
-    const robloxUserIdType = rawRobloxUserId === null ? 'null' : typeof rawRobloxUserId;
-    const rawRobloxUserIdHash =
-      rawRobloxUserId === null || typeof rawRobloxUserId === 'undefined'
-        ? undefined
-        : hashForLog(String(rawRobloxUserId));
     const robloxUserId = normalizeRobloxUserId(rawRobloxUserId as unknown);
     if (rawRobloxUserId !== null && typeof rawRobloxUserId !== 'undefined' && !robloxUserId) {
       rendererLog.warn('renderProfileCard', 'roblox-avatar:invalid-id', {
-        robloxUserIdType,
-        robloxUserIdHash: rawRobloxUserIdHash,
+        robloxUserIdType: typeof rawRobloxUserId,
+        robloxUserIdHash: hashForLog(String(rawRobloxUserId)),
       });
     }
     const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
