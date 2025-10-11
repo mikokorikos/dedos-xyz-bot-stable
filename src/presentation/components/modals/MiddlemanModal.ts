@@ -40,10 +40,10 @@ export class MiddlemanModal {
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId(PARTNER_TAG_ID)
-            .setLabel('Compañero (mención, ID o nombre)')
+            .setLabel('Compañero (mención o ID)')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
-            .setPlaceholder('Menciona al usuario, pega su ID o escribe su nombre visible')
+            .setPlaceholder('@usuario o ID')
             .setMaxLength(100),
         ),
       );
@@ -71,8 +71,7 @@ export class MiddlemanModal {
     }
 
     const context = interaction.fields.getTextInputValue(CONTEXT_ID);
-    const partnerTagRaw = interaction.fields.getTextInputValue(PARTNER_TAG_ID);
-    const partnerTag = partnerTagRaw?.trim() ?? '';
+    const partnerTag = interaction.fields.getTextInputValue(PARTNER_TAG_ID).trim();
 
     if (!env.MIDDLEMAN_CATEGORY_ID) {
       await interaction.reply(
