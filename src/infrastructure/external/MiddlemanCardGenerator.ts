@@ -109,6 +109,46 @@ const createCacheKey = (type: string, payload: unknown): string => {
 
 const hashForLog = (value: string): string => createHash('sha1').update(value).digest('hex');
 
+const normalizeRobloxUserId = (value: unknown): bigint | null => {
+  if (value === null || typeof value === 'undefined') {
+    return null;
+  }
+
+  if (typeof value === 'bigint') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || !Number.isSafeInteger(value)) {
+      return null;
+    }
+
+    return BigInt(value);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      return BigInt(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value === 'object' && value !== null && 'toString' in value) {
+    const stringValue = String(value.toString());
+    if (stringValue && stringValue !== '[object Object]') {
+      return normalizeRobloxUserId(stringValue);
+    }
+  }
+
+  return null;
+};
+
 const traceRoundedRectPath = (
   ctx: SKRSContext2D,
   x: number,
@@ -891,7 +931,14 @@ class MiddlemanCardGenerator {
     const scale = LAYOUT_SCALE[config.layout] ?? 1;
     const baseName = options.discordDisplayName?.trim() || options.discordTag.trim();
     const profileUserHash = profile ? hashForLog(profile.userId.toString()) : undefined;
-    const robloxUserId = profile?.primaryIdentity?.robloxUserId ?? null;
+    const rawRobloxUserId = profile?.primaryIdentity?.robloxUserId;
+    const robloxUserId = normalizeRobloxUserId(rawRobloxUserId as unknown);
+    if (rawRobloxUserId !== null && typeof rawRobloxUserId !== 'undefined' && !robloxUserId) {
+      rendererLog.warn('renderProfileCard', 'roblox-avatar:invalid-id', {
+        robloxUserIdType: typeof rawRobloxUserId,
+        robloxUserIdHash: hashForLog(String(rawRobloxUserId)),
+      });
+    }
     const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
     const hashedTag = hashForLog(options.discordTag);
     const highlightProvided = Boolean(options.highlight ?? config.highlight ?? null);
