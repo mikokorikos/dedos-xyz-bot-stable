@@ -1,4 +1,4 @@
-import type { Guild, GuildMember, TextChannel, User } from 'discord.js';
+import { Collection, type Guild, type GuildMember, type TextChannel, type User } from 'discord.js';
 import type { Logger } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +10,7 @@ import type {
   ITicketRepository,
 } from '@/domain/repositories/ITicketRepository';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
-import { TooManyOpenTicketsError } from '@/shared/errors/domain.errors';
+import { TooManyOpenTicketsError, ValidationFailedError } from '@/shared/errors/domain.errors';
 
 const USER_ID = '123456789012345678';
 const GUILD_ID = '876543210987654321';
@@ -29,10 +29,12 @@ const createMockUser = (id: string): User =>
 
 const createMockMember = (id: string): GuildMember =>
   ({
+    id,
     user: createMockUser(id),
     guild: { id: GUILD_ID } as unknown as Guild,
     nickname: null,
     joinedAt: new Date(),
+    displayName: `display-${id}`,
     roles: { cache: { map: (_callback: (role: { id: string }) => string) => [] as string[] } },
   } as unknown as GuildMember);
 
@@ -155,6 +157,15 @@ describe('OpenMiddlemanChannelUseCase', () => {
 
       throw new Error('Not found');
     });
+
+    const memberCache = new Collection<string, GuildMember>();
+    memberCache.set(USER_ID, ownerMember);
+    memberCache.set(PARTNER_ID, partnerMember);
+
+    (guild.members as unknown as { cache: Collection<string, GuildMember> }).cache = memberCache;
+    (guild.members as unknown as { search: ReturnType<typeof vi.fn> }).search = vi
+      .fn()
+      .mockResolvedValue(new Collection<string, GuildMember>());
   });
 
   it('should create ticket and channel successfully', async () => {

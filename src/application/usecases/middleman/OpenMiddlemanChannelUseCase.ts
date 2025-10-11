@@ -2,7 +2,14 @@
 // RUTA: src/application/usecases/middleman/OpenMiddlemanChannelUseCase.ts
 // ============================================================================
 
-import { ChannelType, type Guild, OverwriteType, PermissionFlagsBits, type TextChannel } from 'discord.js';
+import {
+  ChannelType,
+  type Guild,
+  type GuildMember,
+  OverwriteType,
+  PermissionFlagsBits,
+  type TextChannel,
+} from 'discord.js';
 import type { Logger } from 'pino';
 
 import { type CreateMiddlemanTicketDTO, CreateMiddlemanTicketSchema } from '@/application/dto/ticket.dto';
@@ -23,9 +30,90 @@ import { snapshotFromMember } from '@/shared/utils/discordIdentity';
 
 const MAX_OPEN_TICKETS = 3;
 
-interface TransactionProvider {
-  $transaction<T>(fn: (context: unknown) => Promise<T>): Promise<T>;
-}
+const extractUserIdFromMentionOrId = (input: string): string | undefined => {
+  const mention = input.match(USER_MENTION_RE);
+  if (mention) {
+    return mention[1];
+  }
+
+  if (USER_ID_RE.test(input)) {
+    return input;
+  }
+
+  return undefined;
+};
+
+const normalizeIdentifier = (value: string): string => value.normalize('NFKC').trim().toLowerCase();
+
+const collectCandidateLabels = (member: GuildMember): readonly string[] => {
+  const user = member.user;
+  const discriminator = user.discriminator && user.discriminator !== '0'
+    ? `${user.username}#${user.discriminator}`
+    : null;
+
+  const candidates = [
+    user.username,
+    discriminator,
+    user.globalName ?? null,
+    'displayName' in member ? member.displayName : null,
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0));
+
+  return candidates.map((entry) => normalizeIdentifier(entry));
+};
+
+const resolveFromCache = (guild: Guild, normalized: string): GuildMember[] => {
+  const cache = guild.members.cache;
+  if (!cache || typeof cache.forEach !== 'function') {
+    return [];
+  }
+
+  const matches: GuildMember[] = [];
+  cache.forEach((member) => {
+    if (!member) {
+      return;
+    }
+
+    const candidates = collectCandidateLabels(member);
+    if (candidates.includes(normalized)) {
+      matches.push(member);
+    }
+  });
+
+  return matches;
+};
+
+const buildAmbiguousError = (members: ReadonlyArray<GuildMember>): ValidationFailedError => {
+  const preview = members
+    .slice(0, 5)
+    .map((member) => `• ${member.user.username} (${member.id})`)
+    .join('\n');
+
+  return new ValidationFailedError({
+    partnerTag:
+      'Se encontraron multiples usuarios con ese nombre. Especifica la **mencion** o **ID**.' +
+      (preview ? `\n${preview}` : ''),
+  });
+};
+
+const resolveUserId = async (
+  input: string,
+  guild: Guild,
+  logger: Logger,
+): Promise<string> => {
+  const direct = extractUserIdFromMentionOrId(input);
+  if (direct) {
+    return direct;
+  }
+
+  const normalized = normalizeIdentifier(input);
+  if (!normalized) {
+    throw new ValidationFailedError({
+      partnerTag:
+        'No se pudo resolver el usuario. Pega la **mencion** (`<@...>`) o el **ID** (17-20 digitos).',
+    });
+  }
+
+  const cacheHits = resolveFromCache(guild, normalized);
 
 export class OpenMiddlemanChannelUseCase {
   public constructor(
@@ -82,7 +170,7 @@ export class OpenMiddlemanChannelUseCase {
       throw new ChannelCreationError('No se pudo validar al solicitante dentro del servidor.');
     }
 
-    const partnerMember = await guild.members.fetch(partnerId.toString()).catch(() => null);
+    const partnerMember = await guild.members.fetch(partnerIdStr).catch(() => null);
 
     if (!partnerMember) {
       throw new ValidationFailedError({
@@ -116,7 +204,7 @@ export class OpenMiddlemanChannelUseCase {
             type: OverwriteType.Member,
           },
           {
-            id: partnerId.toString(),
+            id: partnerIdStr,
             allow: [
               PermissionFlagsBits.ViewChannel,
               PermissionFlagsBits.SendMessages,
@@ -143,7 +231,7 @@ export class OpenMiddlemanChannelUseCase {
           channelName,
           guildId: payload.guildId,
           ownerId: payload.userId,
-          partnerId: partnerId.toString(),
+          partnerId: partnerIdStr,
           categoryId: payload.categoryId,
         },
         'Falló la creación del canal de middleman.',
@@ -171,7 +259,7 @@ export class OpenMiddlemanChannelUseCase {
       });
 
       const ownerMention = `<@${payload.userId}>`;
-      const partnerMention = `<@${partnerId.toString()}>`;
+      const partnerMention = `<@${partnerIdStr}>`;
       const embed = this.embeds.ticketCreated({
         ticketId: ticket.id,
         type: 'Middleman',
@@ -208,7 +296,7 @@ export class OpenMiddlemanChannelUseCase {
           {
             embeds: [embed],
             files: tradeCard ? [tradeCard] : [],
-            allowedMentions: { users: [payload.userId, partnerId.toString()], repliedUser: false },
+            allowedMentions: { users: [payload.userId, partnerIdStr], repliedUser: false },
           },
           { useHeroImage: true },
         ),
@@ -235,7 +323,7 @@ export class OpenMiddlemanChannelUseCase {
           ticketId: ticket.id,
           channelId: createdChannel.id,
           ownerId: payload.userId,
-          partnerId: partnerId.toString(),
+          partnerId: partnerIdStr,
           guildId: payload.guildId,
         },
         'Ticket de middleman creado exitosamente.',
@@ -247,7 +335,7 @@ export class OpenMiddlemanChannelUseCase {
         {
           err: error,
           ownerId: payload.userId,
-          partnerId: partnerId.toString(),
+          partnerId: partnerIdStr,
           guildId: payload.guildId,
           channelId: createdChannel.id,
         },

@@ -67,7 +67,12 @@ import {
 import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
 import { env } from '@/shared/config/env';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
-import { TicketNotFoundError, UnauthorizedActionError } from '@/shared/errors/domain.errors';
+import {
+  FinalizationPendingError,
+  TicketNotFoundError,
+  TradesNotConfirmedError,
+  UnauthorizedActionError,
+} from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
 import {
   brandEditReplyOptions,
@@ -146,6 +151,21 @@ const middlemanSlashCommand = new SlashCommandBuilder()
   .setName('middleman')
   .setDescription('Publica el panel para abrir tickets de middleman')
   .setDMPermission(false);
+
+const tradeSlashCommand = new SlashCommandBuilder()
+  .setName('trade')
+  .setDescription('Acciones para administrar un trade con middleman')
+  .setDMPermission(false)
+  .addSubcommand((sub) =>
+    sub
+      .setName('finalize')
+      .setDescription('Solicita las confirmaciones finales de los traders'),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('close')
+      .setDescription('Cierra el trade cuando todos confirmaron la finalizacion'),
+  );
 
 export const middlemanCommand: Command = {
   data: middlemanSlashCommand,
