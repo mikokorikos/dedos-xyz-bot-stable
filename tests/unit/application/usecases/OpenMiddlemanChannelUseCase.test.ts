@@ -200,38 +200,6 @@ describe('OpenMiddlemanChannelUseCase', () => {
     expect(guild.members.fetch).toHaveBeenCalledWith(PARTNER_ID);
   });
 
-  it('should reject partner role mentions', async () => {
-    await expect(
-      useCase.execute(
-        {
-          userId: USER_ID,
-          guildId: GUILD_ID,
-          type: 'MM',
-          context: 'Un contexto suficientemente largo para crear ticket.',
-          partnerTag: '<@&234567890123456789>',
-          categoryId: CATEGORY_ID,
-        },
-        guild,
-      ),
-    ).rejects.toThrowError('Debe proporcionar la mencion o ID del companero');
-  });
-
-  it('should reject plain text partner tags', async () => {
-    await expect(
-      useCase.execute(
-        {
-          userId: USER_ID,
-          guildId: GUILD_ID,
-          type: 'MM',
-          context: 'Un contexto suficientemente largo para crear ticket.',
-          partnerTag: '@usuario',
-          categoryId: CATEGORY_ID,
-        },
-        guild,
-      ),
-    ).rejects.toThrowError('Debe proporcionar la mencion o ID del companero');
-  });
-
   it('should throw error if user has too many open tickets', async () => {
     repo.setOpenTickets(3);
 

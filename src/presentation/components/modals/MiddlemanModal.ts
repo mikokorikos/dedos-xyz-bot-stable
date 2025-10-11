@@ -21,7 +21,6 @@ import { brandEditReplyOptions, brandReplyOptions } from '@/shared/utils/brandin
 
 const CONTEXT_ID = 'context';
 const PARTNER_TAG_ID = 'partnerTag';
-const USER_MENTION_OR_ID_RE = /^(?:<@!?\d{17,20}>|\d{17,20})$/u;
 export class MiddlemanModal {
   public static build(): ModalBuilder {
     return new ModalBuilder()
@@ -44,7 +43,7 @@ export class MiddlemanModal {
             .setLabel('Compañero (mención o ID)')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
-            .setPlaceholder('Pega la mención (<@...>) o el ID (17-20 dígitos)')
+            .setPlaceholder('@usuario o ID')
             .setMaxLength(100),
         ),
       );
@@ -72,24 +71,7 @@ export class MiddlemanModal {
     }
 
     const context = interaction.fields.getTextInputValue(CONTEXT_ID);
-    const partnerTagRaw = interaction.fields.getTextInputValue(PARTNER_TAG_ID);
-    const partnerTag = partnerTagRaw?.trim() ?? '';
-
-    if (!USER_MENTION_OR_ID_RE.test(partnerTag)) {
-      await interaction.reply(
-        brandReplyOptions({
-          embeds: [
-            embedFactory.error({
-              title: 'Compañero inválido',
-              description:
-                'Debes pegar la **mención** del usuario (por ejemplo, `<@123456789012345678>`) o su **ID** (17-20 dígitos). En los formularios no se resuelven "@usuario" automáticamente.',
-            }),
-          ],
-          flags: MessageFlags.Ephemeral,
-        }),
-      );
-      return;
-    }
+    const partnerTag = interaction.fields.getTextInputValue(PARTNER_TAG_ID).trim();
 
     if (!env.MIDDLEMAN_CATEGORY_ID) {
       await interaction.reply(
