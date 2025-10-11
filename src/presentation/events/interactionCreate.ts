@@ -19,7 +19,7 @@ import { RESTJSONErrorCodes } from 'discord-api-types/v10';
 
 import { commandRegistry } from '@/presentation/commands';
 import {
-  buttonHandlers,
+  findButtonHandler,
   modalHandlers,
   selectMenuHandlers,
 } from '@/presentation/components/registry';
@@ -115,7 +115,7 @@ const handleChatInput = async (interaction: ChatInputCommandInteraction): Promis
 };
 
 const handleButton = async (interaction: ButtonInteraction): Promise<void> => {
-  const handler = buttonHandlers.get(interaction.customId);
+  const handler = findButtonHandler(interaction.customId);
 
   if (!handler) {
     logger.warn({ customId: interaction.customId }, 'No existe handler registrado para el botón.');

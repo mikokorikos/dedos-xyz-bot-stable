@@ -453,7 +453,9 @@ registerModalHandler(TradeModal.CUSTOM_ID, async (interaction) => {
 registerFinalizationConfirmButton(confirmFinalizationUseCase, ticketRepo);
 registerFinalizationCancelButton(revokeFinalizationUseCase, ticketRepo);
 
-registerButtonHandler(REVIEW_BUTTON_CUSTOM_ID, async (interaction) => {
+registerButtonHandler(
+  REVIEW_BUTTON_CUSTOM_ID,
+  async (interaction) => {
   const cachedInvite = reviewInviteStore.get(interaction.message.id);
   const buttonMetadata = parseReviewButtonCustomId(interaction.customId);
 
@@ -659,7 +661,9 @@ registerButtonHandler(REVIEW_BUTTON_CUSTOM_ID, async (interaction) => {
   });
 
   await interaction.showModal(ReviewModal.build(modalCustomId));
-});
+  },
+  { match: 'prefix' },
+);
 
 registerButtonHandler(TRADE_DATA_BUTTON_ID, async (interaction) => {
   if (!interaction.channel || interaction.channel.type !== ChannelType.GuildText) {
