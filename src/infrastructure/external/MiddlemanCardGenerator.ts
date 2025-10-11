@@ -998,14 +998,17 @@ class MiddlemanCardGenerator {
       rawRobloxUserIdHash,
     });
 
-    const robloxUserId = normalizeRobloxUserId(rawRobloxUserId as unknown);
-    const normalizedRobloxUserIdType = robloxUserId === null ? 'null' : typeof robloxUserId;
+    const normalizedRobloxUserId = normalizeRobloxUserId(rawRobloxUserId as unknown);
+    const normalizedRobloxUserIdType =
+      normalizedRobloxUserId === null ? 'null' : typeof normalizedRobloxUserId;
     rendererLog.info('renderProfileCard', 'roblox-avatar:debug:normalized', {
-      normalized: robloxUserId !== null,
+      normalized: normalizedRobloxUserId !== null,
       normalizedRobloxUserIdType,
-      robloxUserHash: robloxUserId ? hashForLog(robloxUserId.toString()) : undefined,
+      robloxUserHash: normalizedRobloxUserId
+        ? hashForLog(normalizedRobloxUserId.toString())
+        : undefined,
     });
-    if (hasRawRobloxUserId && !robloxUserId) {
+    if (hasRawRobloxUserId && !normalizedRobloxUserId) {
       rendererLog.warn('renderProfileCard', 'roblox-avatar:invalid-id', {
         robloxUserIdType,
         robloxUserIdHash: rawRobloxUserIdHash,
