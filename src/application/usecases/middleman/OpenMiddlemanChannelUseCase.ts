@@ -53,7 +53,16 @@ export class OpenMiddlemanChannelUseCase {
     dto: CreateMiddlemanTicketDTO,
     guild: Guild,
   ): Promise<{ ticket: Awaited<ReturnType<ITicketRepository['create']>>; channel: TextChannel }> {
+    this.logger.debug(
+      { input: dto, partnerTag: dto.partnerTag },
+      'Recibida solicitud para abrir ticket de middleman.',
+    );
+
     const payload = CreateMiddlemanTicketSchema.parse(dto);
+    this.logger.debug(
+      { partnerTag: payload.partnerTag, userId: payload.userId, guildId: payload.guildId },
+      'Entrada de middleman validada correctamente.',
+    );
     const ownerId = BigInt(payload.userId);
     const guildId = BigInt(payload.guildId);
 
