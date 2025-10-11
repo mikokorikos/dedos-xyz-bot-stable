@@ -152,21 +152,6 @@ const middlemanSlashCommand = new SlashCommandBuilder()
   .setDescription('Publica el panel para abrir tickets de middleman')
   .setDMPermission(false);
 
-const tradeSlashCommand = new SlashCommandBuilder()
-  .setName('trade')
-  .setDescription('Acciones para administrar un trade con middleman')
-  .setDMPermission(false)
-  .addSubcommand((sub) =>
-    sub
-      .setName('finalize')
-      .setDescription('Solicita las confirmaciones finales de los traders'),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName('close')
-      .setDescription('Cierra el trade cuando todos confirmaron la finalizacion'),
-  );
-
 export const middlemanCommand: Command = {
   data: middlemanSlashCommand,
   category: 'Middleman',

@@ -50,6 +50,7 @@ declare module '@napi-rs/canvas' {
 
   export type CanvasImageSource =
     | Buffer
+    | Image
     | { width: number; height: number }
     | { data: Uint8ClampedArray; width: number; height: number }
     | Canvas;
@@ -111,11 +112,13 @@ declare module '@napi-rs/canvas' {
   }
 
   export interface Canvas {
+    readonly width?: number;
+    readonly height?: number;
     getContext(type: '2d'): SKRSContext2D;
     encode(mimeType: string): Promise<Buffer>;
     toBuffer(mimeType?: string): Buffer;
   }
 
   export function createCanvas(width: number, height: number): Canvas;
-  export function loadImage(source: Buffer | string | URL): Promise<CanvasImageSource>;
+  export function loadImage(source: Buffer | string | URL): Promise<Image>;
 }
