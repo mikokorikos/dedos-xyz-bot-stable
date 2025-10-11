@@ -14,6 +14,7 @@ import { pingCommand } from '@/presentation/commands/general/ping';
 import { rulesCommand } from '@/presentation/commands/general/rules';
 import { middlemanCommand } from '@/presentation/commands/middleman/middleman';
 import { middlemanDirectoryCommand } from '@/presentation/commands/middleman/mm';
+import { statsCommand } from '@/presentation/commands/stats/stats';
 import { ticketsPanelCommand } from '@/presentation/commands/tickets/tickets';
 import type { Command } from '@/presentation/commands/types';
 
@@ -23,6 +24,7 @@ const commands: Command[] = [
   rulesCommand,
   middlemanCommand,
   middlemanDirectoryCommand,
+  statsCommand,
   ticketsPanelCommand,
 ];
 
