@@ -553,6 +553,63 @@ const loadRemoteImage = async (
 const buildRobloxAvatarFallbackUrl = (robloxUserId: bigint): string =>
   `https://www.roblox.com/headshot-thumbnail/image?userId=${robloxUserId.toString()}&width=352&height=352&format=png`;
 
+const fetchRobloxUserIdByUsername = async (username: string): Promise<bigint | null> => {
+  const normalizedUsername = username.trim();
+  if (!normalizedUsername) {
+    return null;
+  }
+
+  const robloxUsernameHash = hashForLog(normalizedUsername.toLowerCase());
+  const run = rendererLog.start('fetchRobloxUserIdByUsername', {
+    robloxUsernameHash,
+  });
+
+  try {
+    run.step('request:start');
+    const response = await fetch('https://users.roblox.com/v1/usernames/users', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DedosShopBot/1.0; +https://dedos.xyz)',
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ usernames: [normalizedUsername], excludeBannedUsers: false }),
+    });
+    run.step('request:complete', { statusCode: response.status });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = (await response.json()) as {
+      readonly data?: ReadonlyArray<{ id?: number | string | null; requestedUsername?: string | null }>;
+      readonly errors?: ReadonlyArray<{ code?: string | number; message?: string }>;
+    };
+
+    const normalizedLookup = normalizedUsername.toLowerCase();
+    const match = payload.data?.find((entry) => {
+      if (typeof entry?.requestedUsername !== 'string') {
+        return false;
+      }
+
+      return entry.requestedUsername.toLowerCase() === normalizedLookup;
+    });
+
+    const resolvedId = normalizeRobloxUserId(match?.id ?? null);
+    if (resolvedId) {
+      run.success({ found: true });
+      return resolvedId;
+    }
+
+    const [error] = payload.errors ?? [];
+    run.success({ found: false, reason: error?.code ?? error?.message ?? 'not-found' });
+    return null;
+  } catch (error) {
+    run.error(error);
+    return null;
+  }
+};
+
 const fetchRobloxAvatarUrl = async (robloxUserId: bigint): Promise<string> => {
   const apiUrl =
     'https://thumbnails.roblox.com/v1/users/avatar-headshot?' +
@@ -954,6 +1011,34 @@ class MiddlemanCardGenerator {
         robloxUserIdHash: rawRobloxUserIdHash,
       });
     }
+    let robloxUserId = normalizedRobloxUserId;
+    let robloxUserIdSource: 'raw-id' | 'username-lookup' | 'missing' = robloxUserId
+      ? 'raw-id'
+      : 'missing';
+    const lookupRobloxUsername = profile?.primaryIdentity?.username?.trim() ?? null;
+    const robloxUsernameHash = lookupRobloxUsername
+      ? hashForLog(lookupRobloxUsername.toLowerCase())
+      : undefined;
+
+    if (!robloxUserId && lookupRobloxUsername) {
+      rendererLog.info('renderProfileCard', 'roblox-avatar:lookup:start', {
+        robloxUsernameHash,
+      });
+      const resolvedRobloxUserId = await fetchRobloxUserIdByUsername(lookupRobloxUsername);
+      if (resolvedRobloxUserId) {
+        robloxUserId = resolvedRobloxUserId;
+        robloxUserIdSource = 'username-lookup';
+        rendererLog.info('renderProfileCard', 'roblox-avatar:lookup:success', {
+          robloxUsernameHash,
+          robloxUserHash: hashForLog(resolvedRobloxUserId.toString()),
+        });
+      } else {
+        rendererLog.warn('renderProfileCard', 'roblox-avatar:lookup:failed', {
+          robloxUsernameHash,
+        });
+      }
+    }
+
     const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
     rendererLog.info('renderProfileCard', 'roblox-avatar:inspect', {
       hasPrimaryIdentity: Boolean(profile?.primaryIdentity),
@@ -961,6 +1046,8 @@ class MiddlemanCardGenerator {
       rawRobloxUserIdHash,
       robloxUserHash,
       normalized: Boolean(robloxUserId),
+      robloxUserIdSource,
+      robloxUsernameHash,
     });
     const hashedTag = hashForLog(options.discordTag);
     const highlightProvided = Boolean(options.highlight ?? config.highlight ?? null);
