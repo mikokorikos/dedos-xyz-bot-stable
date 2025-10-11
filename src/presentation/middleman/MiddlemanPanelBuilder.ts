@@ -5,16 +5,19 @@
 import {
   ActionRowBuilder,
   type EmbedBuilder,
+  type InteractionReplyOptions,
   type MessageCreateOptions,
   StringSelectMenuBuilder,
 } from 'discord.js';
 
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
-import { brandMessageOptions } from '@/shared/utils/branding';
+import { brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
 
 export const MIDDLEMAN_PANEL_MENU_ID = 'middleman:panel:menu';
 
-export const buildMiddlemanPanelMessage = (): MessageCreateOptions => {
+type MiddlemanPanelPayload = Pick<InteractionReplyOptions, 'embeds' | 'components' | 'allowedMentions'>;
+
+const buildMiddlemanPanelPayload = (): MiddlemanPanelPayload => {
   const embed = embedFactory.info({
     title: '🛡️ Middleman Dedos Shop',
     description:
@@ -32,12 +35,18 @@ export const buildMiddlemanPanelMessage = (): MessageCreateOptions => {
       { label: 'Abrir middleman', value: 'open', emoji: '🛠️' },
     );
 
-  return brandMessageOptions({
+  return {
     embeds: [embed],
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
     allowedMentions: { parse: [] as const },
-  });
+  };
 };
+
+export const buildMiddlemanPanelMessage = (): MessageCreateOptions =>
+  brandMessageOptions(buildMiddlemanPanelPayload());
+
+export const buildMiddlemanPanelReply = (): InteractionReplyOptions =>
+  brandReplyOptions(buildMiddlemanPanelPayload());
 
 export const buildMiddlemanInfoEmbed = (): EmbedBuilder =>
   embedFactory.info({

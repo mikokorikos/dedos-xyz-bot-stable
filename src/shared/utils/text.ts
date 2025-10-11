@@ -22,9 +22,16 @@ export const stripDiacriticsDeep = <T>(value: T): T => {
     }
 
     if (value instanceof Error) {
-      value.message = stripDiacritics(value.message);
+      const messageDescriptor = Object.getOwnPropertyDescriptor(value, 'message');
+      if (messageDescriptor?.writable || messageDescriptor?.set) {
+        value.message = stripDiacritics(value.message);
+      }
+
       if (typeof value.stack === 'string') {
-        value.stack = stripDiacritics(value.stack);
+        const stackDescriptor = Object.getOwnPropertyDescriptor(value, 'stack');
+        if (stackDescriptor?.writable || stackDescriptor?.set) {
+          value.stack = stripDiacritics(value.stack);
+        }
       }
 
       return value;
