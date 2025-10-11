@@ -726,7 +726,7 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
   const textChannel = channel;
 
   try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferUpdate();
 
     const ticket = await ticketRepo.findByChannelId(BigInt(channel.id));
 
@@ -742,8 +742,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
 
     await tradePanelRenderer.render(textChannel, ticket.id);
 
-    await interaction.editReply(
-      brandEditReplyOptions({
+    await interaction.followUp(
+      brandReplyOptions({
         embeds: [
           embedFactory.success({
             title: 'Confirmacion registrada',
@@ -751,6 +751,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
             description: 'Tu confirmacion quedo registrada correctamente.',
           }),
         ],
+
+        flags: MessageFlags.Ephemeral,
       }),
     );
 
@@ -789,11 +791,11 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
     }
 
     if (interaction.deferred || interaction.replied) {
-      const { flags, ...editPayload } = payload;
+      const { flags: _flags, ...replyPayload } = payload;
 
-      await interaction.editReply(
-        brandEditReplyOptions({
-          ...editPayload,
+      await interaction.followUp(
+        brandReplyOptions({
+          ...replyPayload,
 
           embeds: embeds ?? [
             embedFactory.error({
@@ -802,6 +804,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
               description: 'Int ntalo nuevamente o contacta al staff.',
             }),
           ],
+
+          flags: MessageFlags.Ephemeral,
         }),
       );
 
