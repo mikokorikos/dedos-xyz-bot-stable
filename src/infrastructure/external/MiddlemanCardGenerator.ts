@@ -932,11 +932,26 @@ class MiddlemanCardGenerator {
     const baseName = options.discordDisplayName?.trim() || options.discordTag.trim();
     const profileUserHash = profile ? hashForLog(profile.userId.toString()) : undefined;
     const rawRobloxUserId = profile?.primaryIdentity?.robloxUserId;
+    const hasRawRobloxUserId = rawRobloxUserId !== null && typeof rawRobloxUserId !== 'undefined';
+    const robloxUserIdType = rawRobloxUserId === null ? 'null' : typeof rawRobloxUserId;
+    const rawRobloxUserIdHash = hasRawRobloxUserId ? hashForLog(String(rawRobloxUserId)) : undefined;
+    rendererLog.info('renderProfileCard', 'roblox-avatar:debug:raw', {
+      hasRawRobloxUserId,
+      robloxUserIdType,
+      rawRobloxUserIdHash,
+    });
+
     const robloxUserId = normalizeRobloxUserId(rawRobloxUserId as unknown);
-    if (rawRobloxUserId !== null && typeof rawRobloxUserId !== 'undefined' && !robloxUserId) {
+    const normalizedRobloxUserIdType = robloxUserId === null ? 'null' : typeof robloxUserId;
+    rendererLog.info('renderProfileCard', 'roblox-avatar:debug:normalized', {
+      normalized: robloxUserId !== null,
+      normalizedRobloxUserIdType,
+      robloxUserHash: robloxUserId ? hashForLog(robloxUserId.toString()) : undefined,
+    });
+    if (hasRawRobloxUserId && !robloxUserId) {
       rendererLog.warn('renderProfileCard', 'roblox-avatar:invalid-id', {
-        robloxUserIdType: typeof rawRobloxUserId,
-        robloxUserIdHash: hashForLog(String(rawRobloxUserId)),
+        robloxUserIdType,
+        robloxUserIdHash: rawRobloxUserIdHash,
       });
     }
     const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
