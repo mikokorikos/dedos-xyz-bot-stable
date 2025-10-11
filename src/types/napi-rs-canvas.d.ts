@@ -37,6 +37,17 @@ declare module '@napi-rs/canvas' {
     | 'color'
     | 'luminosity';
 
+  export interface ImageData {
+    readonly data: Uint8ClampedArray;
+    readonly width: number;
+    readonly height: number;
+  }
+
+  export interface Image {
+    readonly width: number;
+    readonly height: number;
+  }
+
   export type CanvasImageSource =
     | Buffer
     | { width: number; height: number }
@@ -59,7 +70,9 @@ declare module '@napi-rs/canvas' {
     font: string;
     textAlign: CanvasTextAlign;
     textBaseline: CanvasTextBaseline;
+    filter: string;
     globalCompositeOperation: GlobalCompositeOperation;
+    globalAlpha: number;
     save(): void;
     restore(): void;
     scale(x: number, y: number): void;
@@ -90,12 +103,16 @@ declare module '@napi-rs/canvas' {
       dw?: number,
       dh?: number,
     ): void;
+    putImageData(imagedata: ImageData, dx: number, dy: number): void;
+    getImageData(sx: number, sy: number, sw: number, sh: number): ImageData;
+    createImageData(width: number, height: number): ImageData;
     fillText(text: string, x: number, y: number, maxWidth?: number): void;
     measureText(text: string): { width: number };
   }
 
   export interface Canvas {
     getContext(type: '2d'): SKRSContext2D;
+    encode(mimeType: string): Promise<Buffer>;
     toBuffer(mimeType?: string): Buffer;
   }
 
