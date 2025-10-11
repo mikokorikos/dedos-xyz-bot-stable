@@ -940,6 +940,13 @@ class MiddlemanCardGenerator {
       });
     }
     const robloxUserHash = robloxUserId ? hashForLog(robloxUserId.toString()) : undefined;
+    rendererLog.info('renderProfileCard', 'roblox-avatar:inspect', {
+      hasPrimaryIdentity: Boolean(profile?.primaryIdentity),
+      robloxUserIdType,
+      rawRobloxUserIdHash,
+      robloxUserHash,
+      normalized: Boolean(robloxUserId),
+    });
     const hashedTag = hashForLog(options.discordTag);
     const highlightProvided = Boolean(options.highlight ?? config.highlight ?? null);
 
@@ -1033,9 +1040,23 @@ class MiddlemanCardGenerator {
 
       const robloxUsername = profile?.primaryIdentity?.username ?? 'Sin registrar';
       let robloxAvatar: CanvasImageSource | null = null;
+      let lastRobloxAvatarUrlHash: string | undefined;
       if (robloxUserId) {
+        rendererLog.info('renderProfileCard', 'roblox-avatar:fetch:start', {
+          robloxUserHash,
+        });
         const robloxAvatarUrl = await fetchRobloxAvatarUrl(robloxUserId);
+        lastRobloxAvatarUrlHash = hashForLog(robloxAvatarUrl);
+        rendererLog.info('renderProfileCard', 'roblox-avatar:fetch:complete', {
+          robloxUserHash,
+          avatarUrlHash: lastRobloxAvatarUrlHash,
+        });
         const isValid = await validateRobloxAvatarUrl(robloxUserId, robloxAvatarUrl);
+        rendererLog.info('renderProfileCard', 'roblox-avatar:validate', {
+          robloxUserHash,
+          avatarUrlHash: lastRobloxAvatarUrlHash,
+          isValid,
+        });
         if (isValid) {
           robloxAvatar = await loadRemoteImage(
             robloxAvatarUrl,
@@ -1048,9 +1069,16 @@ class MiddlemanCardGenerator {
         if (!robloxAvatar) {
           rendererLog.info('renderProfileCard', 'roblox-avatar:fallback', {
             robloxUserHash,
+            avatarUrlHash: lastRobloxAvatarUrlHash,
             reason: isValid ? 'download-failed' : 'validation-failed',
           });
         }
+      } else {
+        rendererLog.info('renderProfileCard', 'roblox-avatar:skip', {
+          reason: 'missing-id',
+          robloxUserIdType,
+          rawRobloxUserIdHash,
+        });
       }
       const robloxCircleX = infoX;
       const robloxCircleY = infoY + 100;
