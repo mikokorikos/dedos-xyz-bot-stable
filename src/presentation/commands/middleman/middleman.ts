@@ -50,9 +50,20 @@ import {
 import { MiddlemanModal } from '@/presentation/components/modals/MiddlemanModal';
 import { ReviewModal } from '@/presentation/components/modals/ReviewModal';
 import { TradeModal } from '@/presentation/components/modals/TradeModal';
-import { modalHandlers, registerButtonHandler, registerModalHandler } from '@/presentation/components/registry';
+import {
+  modalHandlers,
+  registerButtonHandler,
+  registerModalHandler,
+  registerSelectMenuHandler,
+} from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { buildClaimPromptMessage, buildTradeReadyMessage } from '@/presentation/middleman/messages';
+import {
+  buildMiddlemanInfoEmbed,
+  buildMiddlemanPanelMessage,
+  buildMiddlemanPanelReply,
+  MIDDLEMAN_PANEL_MENU_ID,
+} from '@/presentation/middleman/MiddlemanPanelBuilder';
 import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
 import { env } from '@/shared/config/env';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
@@ -133,25 +144,56 @@ const tradePanelRenderer = new TradePanelRenderer(ticketRepo, tradeRepo, logger,
 
 const middlemanSlashCommand = new SlashCommandBuilder()
   .setName('middleman')
-  .setDescription('Accede a las herramientas del sistema de middleman')
+  .setDescription('Publica el panel para abrir tickets de middleman')
   .setDMPermission(false);
 
 export const middlemanCommand: Command = {
   data: middlemanSlashCommand,
   category: 'Middleman',
+  examples: ['/middleman', `${env.COMMAND_PREFIX}middleman`],
+  prefix: {
+    name: 'middleman',
+    aliases: ['middlemanpanel'],
+    async execute(message) {
+      const inGuild = await ensureMessageInGuild(message);
+      if (!inGuild) {
+        return;
+      }
+
+      const channel = await ensureTextChannelFromMessage(
+        message,
+        'El panel solo puede publicarse en canales de texto del servidor.',
+      );
+
+      if (!channel) {
+        return;
+      }
+
+      const panel = buildMiddlemanPanelMessage();
+      await channel.send(panel);
+    },
+  },
   async execute(interaction) {
-    await interaction.reply(
-      brandReplyOptions({
-        embeds: [
-          embedFactory.info({
-            title: 'Sistema de middleman',
-            description:
-              'Gestiona tus trades desde los botones disponibles en el ticket. Si necesitas soporte adicional, abre un ticket con el staff.',
-          }),
-        ],
-        flags: MessageFlags.Ephemeral,
-      }),
-    );
+    const channel = interaction.channel;
+
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Canal no compatible',
+              description: 'El panel solo puede publicarse en canales de texto del servidor.',
+            }),
+          ],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return;
+    }
+
+    const panel = buildMiddlemanPanelReply();
+
+    await interaction.reply(panel);
   },
 };
 
@@ -203,6 +245,53 @@ const ensureTextChannelFromMessage = async (
 
   return channel;
 };
+
+
+registerSelectMenuHandler(MIDDLEMAN_PANEL_MENU_ID, async (interaction) => {
+  const [value] = interaction.values;
+
+  if (!value) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Opcion no valida',
+            description: 'Selecciona una opcion disponible del panel.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (value === 'info') {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildMiddlemanInfoEmbed()],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (value === 'open') {
+    await interaction.showModal(MiddlemanModal.build());
+    return;
+  }
+
+  await interaction.reply(
+    brandReplyOptions({
+      embeds: [
+        embedFactory.warning({
+          title: 'Opcion no disponible',
+          description: 'La accion seleccionada no esta configurada en el panel.',
+        }),
+      ],
+      flags: MessageFlags.Ephemeral,
+    }),
+  );
+});
 
 
 const resolvePartnerParticipantId = (
@@ -637,7 +726,7 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
   const textChannel = channel;
 
   try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferUpdate();
 
     const ticket = await ticketRepo.findByChannelId(BigInt(channel.id));
 
@@ -653,8 +742,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
 
     await tradePanelRenderer.render(textChannel, ticket.id);
 
-    await interaction.editReply(
-      brandEditReplyOptions({
+    await interaction.followUp(
+      brandReplyOptions({
         embeds: [
           embedFactory.success({
             title: 'Confirmacion registrada',
@@ -662,6 +751,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
             description: 'Tu confirmacion quedo registrada correctamente.',
           }),
         ],
+
+        flags: MessageFlags.Ephemeral,
       }),
     );
 
@@ -700,11 +791,11 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
     }
 
     if (interaction.deferred || interaction.replied) {
-      const { flags, ...editPayload } = payload;
+      const { flags: _flags, ...replyPayload } = payload;
 
-      await interaction.editReply(
-        brandEditReplyOptions({
-          ...editPayload,
+      await interaction.followUp(
+        brandReplyOptions({
+          ...replyPayload,
 
           embeds: embeds ?? [
             embedFactory.error({
@@ -713,6 +804,8 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
               description: 'Int ntalo nuevamente o contacta al staff.',
             }),
           ],
+
+          flags: MessageFlags.Ephemeral,
         }),
       );
 
