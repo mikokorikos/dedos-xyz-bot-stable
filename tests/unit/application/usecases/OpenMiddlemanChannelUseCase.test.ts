@@ -2,7 +2,7 @@ import { Collection, type Guild, type GuildMember, type TextChannel, type User }
 import type { Logger } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { Ticket } from '@/domain/entities/Ticket';
 import { TicketStatus } from '@/domain/entities/types';
 import type {
