@@ -19,7 +19,7 @@ import { ClaimTradeUseCase } from '@/application/usecases/middleman/ClaimTradeUs
 import { CloseTradeUseCase } from '@/application/usecases/middleman/CloseTradeUseCase';
 import { ConfirmFinalizationUseCase } from '@/application/usecases/middleman/ConfirmFinalizationUseCase';
 import { ConfirmTradeUseCase } from '@/application/usecases/middleman/ConfirmTradeUseCase';
-import OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { RequestTradeClosureUseCase } from '@/application/usecases/middleman/RequestTradeClosureUseCase';
 import { RevokeFinalizationUseCase } from '@/application/usecases/middleman/RevokeFinalizationUseCase';
 import { SubmitReviewUseCase } from '@/application/usecases/middleman/SubmitReviewUseCase';
