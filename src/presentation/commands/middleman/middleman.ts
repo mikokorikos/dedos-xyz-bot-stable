@@ -61,6 +61,7 @@ import { buildClaimPromptMessage, buildTradeReadyMessage } from '@/presentation/
 import {
   buildMiddlemanInfoEmbed,
   buildMiddlemanPanelMessage,
+  buildMiddlemanPanelReply,
   MIDDLEMAN_PANEL_MENU_ID,
 } from '@/presentation/middleman/MiddlemanPanelBuilder';
 import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
@@ -190,9 +191,9 @@ export const middlemanCommand: Command = {
       return;
     }
 
-    const panel = buildMiddlemanPanelMessage();
+    const panel = buildMiddlemanPanelReply();
 
-    await interaction.reply(brandReplyOptions(panel));
+    await interaction.reply(panel);
   },
 };
 
