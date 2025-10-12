@@ -20,6 +20,7 @@ import { ticketsPanelCommand } from '@/presentation/commands/tickets/tickets';
 import type { Command } from '@/presentation/commands/types';
 import { unwarnCommand } from '@/presentation/commands/warns/unwarn';
 import { verbalWarnCommand } from '@/presentation/commands/warns/verbal-warn';
+import { warnCommand } from '@/presentation/commands/warns/warn';
 
 const commands: Command[] = [
   pingCommand,
@@ -32,6 +33,7 @@ const commands: Command[] = [
   ticketsPanelCommand,
   unwarnCommand,
   verbalWarnCommand,
+  warnCommand,
 ];
 
 registerCommands(commands);

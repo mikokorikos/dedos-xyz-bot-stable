@@ -4,10 +4,16 @@
 
 import { GuildMember, SlashCommandBuilder } from 'discord.js';
 
-import { AddWarnUseCase } from '@/application/usecases/warns/AddWarnUseCase';
+import {
+  AddWarnUseCase,
+  type EscalationAction,
+  type EscalationProgress,
+  resolveEscalationProgress,
+} from '@/application/usecases/warns/AddWarnUseCase';
 import { ListWarnsUseCase } from '@/application/usecases/warns/ListWarnsUseCase';
 import { RemoveWarnUseCase } from '@/application/usecases/warns/RemoveWarnUseCase';
 import { WarnSeverity } from '@/domain/entities/Warn';
+import type { WarnSummary } from '@/domain/repositories/IWarnRepository';
 import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaWarnRepository } from '@/infrastructure/repositories/PrismaWarnRepository';
 import type { Command } from '@/presentation/commands/types';
@@ -23,6 +29,60 @@ const warnRepository = new PrismaWarnRepository(prisma);
 const addWarnUseCase = new AddWarnUseCase(warnRepository, logger);
 const removeWarnUseCase = new RemoveWarnUseCase(warnRepository, logger);
 const listWarnsUseCase = new ListWarnsUseCase(warnRepository);
+
+const ESCALATION_LABELS: Record<EscalationAction, string> = {
+  NONE: 'Seguimiento (sin sanción inmediata)',
+  MUTE: 'Silenciamiento temporal (12 horas)',
+  TEMP_BAN: 'Suspensión temporal (7 días)',
+  BAN: 'Expulsión definitiva del servidor',
+};
+
+const WARN_SEVERITY_LABELS: Record<WarnSeverity, string> = {
+  [WarnSeverity.MINOR]: 'Leve',
+  [WarnSeverity.MAJOR]: 'Grave',
+  [WarnSeverity.CRITICAL]: 'Crítica',
+};
+
+const formatEscalationFields = (
+  summary: WarnSummary,
+  escalation: EscalationProgress,
+): Record<string, string> => {
+  const fields: Record<string, string> = {
+    'Advertencias registradas': summary.total.toString(),
+    'Puntuación ponderada': summary.weightedScore.toString(),
+    'Sanción actual': ESCALATION_LABELS[escalation.currentAction],
+    'Última advertencia': summary.lastWarnAt
+      ? `<t:${Math.floor(summary.lastWarnAt.getTime() / 1000)}:R>`
+      : 'N/A',
+  };
+
+  if (escalation.nextAction) {
+    fields['Siguiente sanción'] = ESCALATION_LABELS[escalation.nextAction];
+
+    if (escalation.remainingWeight <= 0) {
+      fields['Progreso a la sanción'] = 'La siguiente advertencia activará esta sanción.';
+    } else {
+      const remainingWarns = Math.max(1, Math.ceil(escalation.remainingWeight));
+      const warnLabel = remainingWarns === 1 ? 'advertencia leve' : 'advertencias leves';
+      fields['Progreso a la sanción'] = `Faltan ${escalation.remainingWeight} puntos de severidad (~${remainingWarns} ${warnLabel}).`;
+    }
+  } else {
+    fields['Siguiente sanción'] =
+      'No hay sanciones adicionales. Cualquier advertencia extra resultará en expulsión definitiva.';
+    fields['Progreso a la sanción'] = 'Has alcanzado el límite máximo permitido.';
+  }
+
+  return fields;
+};
+
+const buildWarnSummaryFields = (
+  memberTag: string,
+  summary: WarnSummary,
+  escalation: EscalationProgress,
+): Record<string, string> => ({
+  Miembro: memberTag,
+  ...formatEscalationFields(summary, escalation),
+});
 
 export const warnCommand: Command = {
   data: new SlashCommandBuilder()
@@ -132,6 +192,13 @@ export const warnCommand: Command = {
         reason,
       });
 
+      const staffSummaryFields = buildWarnSummaryFields(
+        mentionUser(target.id),
+        result.summary,
+        result.escalation,
+      );
+      const dmSummaryFields = buildWarnSummaryFields(target.tag, result.summary, result.escalation);
+
       await interaction.editReply({
         embeds: [
           embedFactory.warnApplied({
@@ -140,14 +207,7 @@ export const warnCommand: Command = {
             severity,
             reason,
           }),
-          embedFactory.warnSummary({
-            'Advertencias totales': result.summary.total,
-            'Puntuación ponderada': result.summary.weightedScore,
-            'Última advertencia': result.summary.lastWarnAt
-              ? `<t:${Math.floor(result.summary.lastWarnAt.getTime() / 1000)}:R>`
-              : 'N/A',
-            'Acción recomendada': result.recommendedAction,
-          }),
+          embedFactory.warnSummary(staffSummaryFields),
         ],
       });
 
@@ -160,6 +220,7 @@ export const warnCommand: Command = {
               severity,
               reason,
             }),
+            embedFactory.warnSummary(dmSummaryFields),
           ],
         });
       } catch (error) {
@@ -187,16 +248,26 @@ export const warnCommand: Command = {
       await interaction.deferReply({ ephemeral: true });
 
       const { warns, summary } = await listWarnsUseCase.execute({ userId: target.id });
+      const escalation = resolveEscalationProgress(summary);
+      const summaryFields = buildWarnSummaryFields(mentionUser(target.id), summary, escalation);
+
+      const historyDescription = warns.length
+        ? warns
+            .slice(0, 10)
+            .map((warn) => {
+              const timestamp = `<t:${Math.floor(warn.createdAt.getTime() / 1000)}:R>`;
+              const reason = warn.reason ? ` — ${warn.reason}` : '';
+              return `• **${WARN_SEVERITY_LABELS[warn.severity]}**${reason} (${timestamp})`;
+            })
+            .join('\n')
+        : 'El miembro no cuenta con advertencias registradas.';
 
       await interaction.editReply({
         embeds: [
-          embedFactory.warnSummary({
-            Miembro: mentionUser(target.id),
-            'Advertencias registradas': warns.length,
-            'Puntuación ponderada': summary.weightedScore,
-            'Última advertencia': summary.lastWarnAt
-              ? `<t:${Math.floor(summary.lastWarnAt.getTime() / 1000)}:R>`
-              : 'N/A',
+          embedFactory.warnSummary(summaryFields),
+          embedFactory.info({
+            title: warns.length ? 'Historial de advertencias' : 'Sin advertencias activas',
+            description: historyDescription,
           }),
         ],
       });

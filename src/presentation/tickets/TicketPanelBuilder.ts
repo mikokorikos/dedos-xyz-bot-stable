@@ -46,17 +46,29 @@ interface ShopTicketOption {
   readonly embedBuilder: () => EmbedBuilder;
 }
 
-const applyBrand = (embed: EmbedBuilder): EmbedBuilder => {
+const applyBrand = (embed: EmbedBuilder, options: { includeBanner?: boolean } = {}): EmbedBuilder => {
   const icon = env.TICKET_BRAND_ICON_URL;
-  return embed
+
+  embed
     .setColor(0x7400ff)
     .setAuthor({ name: '.gg/dedos', iconURL: icon })
     .setFooter({
       text: 'En caso de dudas, en el canal de tickets puedes solicitar ayuda.',
       iconURL: icon,
-    })
-    .setImage(SHOP_GIF_URL);
+    });
+
+  if (options.includeBanner ?? true) {
+    embed.setImage(SHOP_GIF_URL);
+  }
+
+  if (icon) {
+    embed.setThumbnail(icon);
+  }
+
+  return embed;
 };
+
+const formatTicketNumber = (ticketId: number): string => ticketId.toString().padStart(4, '0');
 
 const SHOP_STORE_PETS: Array<{ name: string; mxn: number }> = [
   { name: ' <:Discobee:1414419895348891689>  Disco Bee', mxn: 80 },
@@ -349,13 +361,16 @@ export const buildTicketIntroMessage = (
   option: ShopTicketOption,
   member: GuildMember,
   staffRoleIds: readonly string[],
+  ticketId: number,
 ): {
   readonly content: string;
   readonly embeds: EmbedBuilder[];
   readonly components: [ActionRowBuilder<ButtonBuilder>];
   readonly allowedMentions: { readonly users: string[]; readonly roles: string[] };
 } => {
+  const ticketNumber = formatTicketNumber(ticketId);
   const lines = [
+    `Ticket #${ticketNumber}`,
     `Hola <@${member.id}> 💜`,
     ...option.introLines,
     '',
@@ -364,9 +379,10 @@ export const buildTicketIntroMessage = (
 
   const embed = applyBrand(
     new EmbedBuilder()
-      .setTitle(`Ticket abierto: ${option.menuLabel}`)
+      .setTitle(`Ticket #${ticketNumber} • ${option.menuLabel}`)
       .setDescription(lines.join('\n'))
       .setTimestamp(),
+    { includeBanner: false },
   );
 
   const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(

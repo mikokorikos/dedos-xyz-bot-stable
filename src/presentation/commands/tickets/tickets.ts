@@ -285,7 +285,7 @@ registerButtonHandler(
       originChannelId: interaction.channel?.id,
     });
 
-    const intro = buildTicketIntroMessage(option, member, result.staffRoleIds);
+    const intro = buildTicketIntroMessage(option, member, result.staffRoleIds, result.ticket.id);
 
     try {
       await result.channel.send(
