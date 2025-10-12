@@ -9,7 +9,8 @@ import type { Logger } from 'pino';
 import type { FinalizationParticipantPresentation } from '@/application/services/FinalizationPanelService';
 import { renderFinalizationPanel } from '@/application/services/FinalizationPanelService';
 import { reviewInviteStore } from '@/application/services/ReviewInviteStore';
-import type { IMemberStatsRepository } from '@/domain/repositories/IMemberStatsRepository';
+import type { Trade } from '@/domain/entities/Trade';
+import type { IMemberStatsRepository, TradeMetadata } from '@/domain/repositories/IMemberStatsRepository';
 import type { IMiddlemanFinalizationRepository } from '@/domain/repositories/IMiddlemanFinalizationRepository';
 import type { IMiddlemanRepository } from '@/domain/repositories/IMiddlemanRepository';
 import type { ITicketRepository, TicketParticipantInput } from '@/domain/repositories/ITicketRepository';
@@ -88,6 +89,8 @@ export class CloseTradeUseCase {
 
     const completedAt = new Date();
 
+    const tradeMetadata = this.buildTradeMetadata(ticket.ownerId, ticketParticipants, trades);
+
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const transactionalTicketRepo = this.ticketRepo.withTransaction(tx);
       const transactionalTradeRepo = this.tradeRepo.withTransaction(tx);
@@ -110,7 +113,7 @@ export class CloseTradeUseCase {
       ticket.close();
       await transactionalTicketRepo.update(ticket);
       await transactionalMiddlemanRepo.markClosed(ticketId, { closedAt: completedAt });
-      await transactionalStatsRepo.recordCompletedTrade(middlemanId, completedAt);
+      await transactionalStatsRepo.recordCompletedTrade(middlemanId, completedAt, tradeMetadata);
     });
 
     if (traderIds.size > 0) {
@@ -131,22 +134,25 @@ export class CloseTradeUseCase {
     }
 
     const reviewMessage = await channel.send(
-      brandMessageOptions({
-        embeds: [
-          this.embeds.success({
-            title: 'Ticket cerrado',
-            description:
-              'La transacción fue marcada como completada. Gracias por utilizar el sistema de middleman de Dedos.',
-          }),
-          this.embeds.reviewRequest({
-            middlemanTag: `<@${middlemanId}>`,
-            tradeSummary: 'Por favor comparte tu experiencia respondiendo al formulario de reseña.',
-          }),
-        ],
-        components: [
-          buildReviewButtonRow({ ticketId, middlemanId: middlemanId.toString() }),
-        ],
-      }),
+      brandMessageOptions(
+        {
+          embeds: [
+            this.embeds.success({
+              title: 'Ticket cerrado',
+              description:
+                'La transacción fue marcada como completada. Gracias por utilizar el sistema de middleman de Dedos.',
+            }),
+            this.embeds.reviewRequest({
+              middlemanTag: `<@${middlemanId}>`,
+              tradeSummary: 'Por favor comparte tu experiencia respondiendo al formulario de reseña.',
+            }),
+          ],
+          components: [
+            buildReviewButtonRow({ ticketId, middlemanId: middlemanId.toString() }),
+          ],
+        },
+        { useHeroImage: false },
+      ),
     );
 
     reviewInviteStore.set(reviewMessage.id, { ticketId, middlemanId: middlemanId.toString() });
@@ -155,6 +161,38 @@ export class CloseTradeUseCase {
       { ticketId, middlemanId: middlemanId.toString(), channelId: channel.id },
       'Ticket de middleman cerrado correctamente.',
     );
+  }
+
+  private buildTradeMetadata(
+    ownerId: bigint,
+    participants: ReadonlyArray<TicketParticipantInput>,
+    trades: ReadonlyArray<Trade>,
+  ): TradeMetadata | undefined {
+    if (trades.length === 0) {
+      return undefined;
+    }
+
+    const ownerTrade = trades.find((trade) => trade.userId === ownerId) ?? null;
+    const fallbackTrade = ownerTrade ?? trades[0] ?? null;
+
+    if (!fallbackTrade) {
+      return undefined;
+    }
+
+    const partnerEntry = participants
+      .filter((participant) => participant.userId !== ownerId)
+      .find((participant) => {
+        const role = participant.role?.toUpperCase() ?? null;
+        return !role || role === 'TRADER' || role === 'PARTNER';
+      });
+
+    const partnerTag = partnerEntry ? `<@${partnerEntry.userId.toString()}>` : undefined;
+
+    return {
+      robloxUsername: fallbackTrade.robloxUsername,
+      robloxUserId: fallbackTrade.robloxUserId ?? undefined,
+      partnerTag,
+    };
   }
 
   private allFinalizationsConfirmed(traderIds: Set<bigint>, confirmed: ReadonlySet<bigint>): boolean {
