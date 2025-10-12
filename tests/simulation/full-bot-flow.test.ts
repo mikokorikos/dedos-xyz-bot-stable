@@ -534,6 +534,7 @@ class InMemoryMiddlemanRepository implements IMiddlemanRepository {
       reviewRequestedAt: null,
       closedAt: null,
       forcedClose: false,
+      vouched: false,
       panelMessageId: null,
       finalizationMessageId: null,
     });
@@ -545,10 +546,19 @@ class InMemoryMiddlemanRepository implements IMiddlemanRepository {
   ): Promise<void> {
     const claim = this.claims.get(ticketId);
     if (claim) {
+      const profile = this.profiles.get(claim.middlemanId);
+      const vouched = payload.forcedClose ? false : true;
+      if (profile && vouched && !claim.vouched) {
+        this.profiles.set(claim.middlemanId, {
+          ...profile,
+          vouches: profile.vouches + 1,
+        });
+      }
       this.claims.set(ticketId, {
         ...claim,
         closedAt: payload.closedAt,
         forcedClose: payload.forcedClose ?? false,
+        vouched,
       });
     }
   }
