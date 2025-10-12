@@ -696,7 +696,8 @@ class InMemoryMemberStatsRepository implements IMemberStatsRepository {
     completedAt: Date,
     metadata?: { robloxUsername?: string | null; robloxUserId?: bigint | null; partnerTag?: string | null },
   ): Promise<MemberTradeStats> {
-    const existing = this.stats.get(userId) ?? new MemberTradeStats(userId, 0, null, null, null, null, new Date());
+    const existing =
+      this.stats.get(userId) ?? new MemberTradeStats(userId, 0, null, null, null, null, new Date(), 0, 0, null);
     existing.registerTrade(completedAt, {
       robloxUsername: metadata?.robloxUsername ?? undefined,
       robloxUserId: metadata?.robloxUserId ?? undefined,
@@ -969,7 +970,7 @@ describe('Simulación integral del bot', () => {
     );
     const submitReviewUseCase = new SubmitReviewUseCase(reviewRepo, ticketRepo, middlemanRepo, embedFactory, fakeLogger);
     const addWarnUseCase = new AddWarnUseCase(warnRepo, fakeLogger);
-    const getStatsUseCase = new GetMemberStatsUseCase(statsRepo);
+    const getStatsUseCase = new GetMemberStatsUseCase(statsRepo, middlemanRepo, warnRepo);
 
     logger.begin('🧪', 'Inicialización de entorno', 'Creación de ticket de soporte');
     const { channel: supportChannel } = await supportTicketUseCase.execute({
