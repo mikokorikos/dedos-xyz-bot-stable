@@ -1308,7 +1308,8 @@ class MiddlemanCardGenerator {
 
       ctx.fillStyle = '#ffffff';
       ctx.font = '700 46px "Segoe UI", sans-serif';
-      ctx.fillText(`Ticket #${options.ticketCode}`, 82, 120);
+      const ticketCode = String(options.ticketCode).padStart(4, '0');
+      ctx.fillText(`Ticket #${ticketCode}`, 82, 120);
 
       ctx.fillStyle = addAlphaToHex('#FFFFFF', 0.72);
       ctx.font = '500 22px "Segoe UI", sans-serif';
@@ -1349,7 +1350,19 @@ class MiddlemanCardGenerator {
           confirmed: '#38BDF8',
           delivered: '#34D399',
         };
-        drawBadge(ctx, baseX + 26, baseY + 84, 'Estado', participant.status.toUpperCase(), statusPalette[participant.status]);
+        const statusLabels: Record<TradeParticipantCardInfo['status'], string> = {
+          pending: 'Pendiente',
+          confirmed: 'Confirmado',
+          delivered: 'Entregado',
+        };
+        drawBadge(
+          ctx,
+          baseX + 26,
+          baseY + 84,
+          'Estado',
+          statusLabels[participant.status],
+          statusPalette[participant.status],
+        );
 
         if (participant.items && participant.items.length > 0) {
           ctx.fillStyle = addAlphaToHex('#FFFFFF', 0.6);

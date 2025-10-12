@@ -2,64 +2,159 @@
 // RUTA: src/presentation/commands/general/rules.ts
 // ============================================================================
 
-import { ChannelType, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, SlashCommandBuilder, type TextChannel } from 'discord.js';
 
 import type { Command } from '@/presentation/commands/types';
-import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { helpMenuService, verificationService } from '@/presentation/services/community';
+import { PERMISSIONS } from '@/shared/config/constants';
 import { env } from '@/shared/config/env';
+import { logger } from '@/shared/logger/pino';
 import { brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
+import { hasPermissions } from '@/shared/utils/permissions';
 
-const RULES = [
-  'Respeta a todos los miembros y evita lenguaje ofensivo.',
-  'Esta prohibido estafar, impersonar o compartir informacion privada.',
-  'Los trades deben gestionarse en los canales correspondientes y con middleman oficial cuando se solicite.',
-  'No hagas spam ni promociones sin autorizacion del staff.',
-  'Sigue las indicaciones del equipo de moderacion y abre un ticket si necesitas ayuda.',
-];
+const buildRulesPayload = () => {
+  const embed = verificationService.buildRulesEmbed();
+  const attachments = verificationService.buildRulesAttachments();
+  const components = [helpMenuService.buildMenuRow(), ...verificationService.createComponents()];
 
-const buildRulesEmbed = () =>
-  embedFactory.info({
-    title: '📜 Reglas principales de Dedos Shop',
-    description: RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n'),
-    footer: 'El incumplimiento puede resultar en sanciones dentro del servidor.',
-  });
+  return {
+    embeds: [embed],
+    files: attachments.length > 0 ? attachments : undefined,
+    components,
+    allowedMentions: { parse: [] as const },
+  };
+};
 
 export const rulesCommand: Command = {
-  data: new SlashCommandBuilder().setName('rules').setDescription('Publica el panel con las reglas principales del servidor.'),
+  data: new SlashCommandBuilder()
+    .setName('rules')
+    .setDescription('Publica el panel de reglas, ayuda y verificación del servidor.')
+    .addChannelOption((option) =>
+      option
+        .setName('canal')
+        .setDescription('Canal de texto donde se publicará el mensaje')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(false),
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   category: 'General',
-  examples: ['/rules', `${env.COMMAND_PREFIX}rules`],
+  examples: ['/rules', `${env.COMMAND_PREFIX}rules`, `${env.COMMAND_PREFIX}reglas #canal`],
   prefix: {
     name: 'rules',
-    async execute(message) {
-      if (message.channel.type !== ChannelType.GuildText) {
+    aliases: ['reglas'],
+    async execute(message, args) {
+      if (!message.guild || message.channel.type !== ChannelType.GuildText) {
         await message.reply(
           brandMessageOptions({
-            embeds: [
-              embedFactory.warning({
-                title: 'Canal no compatible',
-                description: 'Las reglas solo pueden publicarse en canales de texto del servidor.',
-              }),
-            ],
+            content: 'Este comando solo puede usarse dentro de canales de texto del servidor.',
             allowedMentions: { repliedUser: false },
           }),
         );
         return;
       }
 
-      await message.channel.send(
-        brandMessageOptions({
-          embeds: [buildRulesEmbed()],
-          allowedMentions: { parse: [] },
-        }),
-      );
+      if (!hasPermissions(message.member, PERMISSIONS.admin)) {
+        await message.reply(
+          brandMessageOptions({
+            content: 'Necesitas permisos de administrador para publicar las reglas.',
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const target = args.at(0);
+      const channel = target
+        ? message.mentions.channels.first() ?? message.guild.channels.cache.get(target)
+        : message.channel;
+
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        await message.reply(
+          brandMessageOptions({
+            content: 'Debes indicar un canal de texto válido para publicar las reglas.',
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const payload = buildRulesPayload();
+
+      try {
+        const sent = await channel.send(brandMessageOptions(payload));
+        await verificationService.persistMessageId(sent.id);
+        await message.reply(
+          brandMessageOptions({
+            content: `Panel publicado en <#${channel.id}>.`,
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+      } catch (error) {
+        logger.error({ err: error, channelId: channel.id }, 'No se pudo publicar el panel de reglas.');
+        await message.reply(
+          brandMessageOptions({
+            content: 'No se pudo publicar el panel. Revisa mis permisos e intenta de nuevo.',
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+      }
     },
   },
   async execute(interaction) {
-    await interaction.reply(
-      brandReplyOptions({
-        embeds: [buildRulesEmbed()],
-        allowedMentions: { parse: [] },
-      }),
-    );
+    if (!interaction.guild) {
+      await interaction.reply(
+        brandReplyOptions({
+          content: 'Solo puedo publicar las reglas dentro de un servidor.',
+          ephemeral: true,
+        }),
+      );
+      return;
+    }
+
+    const hasAdminPermission = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
+
+    if (!hasAdminPermission) {
+      await interaction.reply(
+        brandReplyOptions({
+          content: 'Necesitas permisos de administrador para publicar el panel.',
+          ephemeral: true,
+        }),
+      );
+      return;
+    }
+
+    const channel = interaction.options.getChannel('canal') ?? interaction.channel;
+
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      await interaction.reply(
+        brandReplyOptions({
+          content: 'Debes seleccionar un canal de texto válido para publicar el panel.',
+          ephemeral: true,
+        }),
+      );
+      return;
+    }
+
+    const payload = buildRulesPayload();
+
+    try {
+      const textChannel = channel as TextChannel;
+      const sent = await textChannel.send(brandMessageOptions(payload));
+      await verificationService.persistMessageId(sent.id);
+      await interaction.reply(
+        brandReplyOptions({
+          content: `Panel publicado correctamente en <#${channel.id}>.`,
+          ephemeral: true,
+        }),
+      );
+    } catch (error) {
+      logger.error({ err: error, channelId: channel.id }, 'No se pudo publicar el panel de reglas.');
+      await interaction.reply(
+        brandReplyOptions({
+          content: 'No se pudo publicar el panel. Verifica mis permisos e intenta de nuevo.',
+          ephemeral: true,
+        }),
+      );
+    }
   },
 };

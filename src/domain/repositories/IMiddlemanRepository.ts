@@ -12,6 +12,7 @@ export interface MiddlemanClaim {
   readonly reviewRequestedAt?: Date | null;
   readonly closedAt?: Date | null;
   readonly forcedClose?: boolean;
+  readonly vouched?: boolean;
   readonly panelMessageId?: bigint | null;
   readonly finalizationMessageId?: bigint | null;
 }
