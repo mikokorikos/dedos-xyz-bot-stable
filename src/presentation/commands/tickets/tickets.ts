@@ -194,7 +194,21 @@ registerButtonHandler(TICKET_CLOSE_BUTTON_ID, async (interaction) => {
 
   const ticket = await ticketRepository.findByChannelId(BigInt(interaction.channel.id));
   if (ticket && ticket.status !== TicketStatus.CLOSED) {
-    ticket.close();
+    if (!ticket.canBeClosed()) {
+      try {
+        ticket.confirm();
+      } catch (error) {
+        logger.warn(
+          { err: error, ticketId: ticket.id, currentStatus: ticket.status },
+          'No se pudo preparar el ticket para cierre automático.',
+        );
+      }
+    }
+
+    if (ticket.canBeClosed()) {
+      ticket.close();
+    }
+
     try {
       await ticketRepository.update(ticket);
     } catch (error) {
