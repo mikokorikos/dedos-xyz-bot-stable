@@ -63,6 +63,7 @@ export class PrismaMiddlemanRepository implements IMiddlemanRepository {
       data: {
         closedAt: payload.closedAt,
         forcedClose: payload.forcedClose ?? false,
+        vouched: payload.forcedClose ? false : true,
       },
     });
   }
@@ -360,6 +361,7 @@ export class PrismaMiddlemanRepository implements IMiddlemanRepository {
       reviewRequestedAt: claim.reviewRequestedAt ?? undefined,
       closedAt: claim.closedAt ?? undefined,
       forcedClose: claim.forcedClose ?? undefined,
+      vouched: claim.vouched ?? undefined,
       panelMessageId: claim.panelMessageId ?? null,
       finalizationMessageId: claim.finalizationMessageId ?? null,
     };
