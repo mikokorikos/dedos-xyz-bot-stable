@@ -148,7 +148,35 @@ export const EnvSchema = z.object({
     .string()
     .regex(/^\d{17,20}$/u, 'TICKET_CATEGORY_ID debe ser un snowflake de Discord')
     .optional(),
-
+  TICKET_PANEL_CHANNEL_ID: z
+    .string()
+    .regex(/^\d{17,20}$/u, 'TICKET_PANEL_CHANNEL_ID debe ser un snowflake de Discord')
+    .optional(),
+  TICKET_SELECT_MENU_ID: z
+    .string()
+    .min(3, 'TICKET_SELECT_MENU_ID debe tener al menos 3 caracteres')
+    .max(80, 'TICKET_SELECT_MENU_ID debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:ticket:menu'),
+  TICKET_OPEN_BUTTON_PREFIX: z
+    .string()
+    .min(3, 'TICKET_OPEN_BUTTON_PREFIX debe tener al menos 3 caracteres')
+    .max(80, 'TICKET_OPEN_BUTTON_PREFIX debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:ticket:open:'),
+  TICKET_CLOSE_BUTTON_ID: z
+    .string()
+    .min(3, 'TICKET_CLOSE_BUTTON_ID debe tener al menos 3 caracteres')
+    .max(80, 'TICKET_CLOSE_BUTTON_ID debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:ticket:close'),
+  TICKET_BRAND_ICON_URL: z
+    .string()
+    .url('TICKET_BRAND_ICON_URL debe ser una URL valida')
+    .optional()
+    .default(
+      'https://cdn.discordapp.com/attachments/1412699909949358151/1417272988801175593/dedosbot_avatar.jpg',
+    ),
   TICKET_STAFF_ROLE_IDS: commaSeparatedSnowflakes.default([]),
 
   TICKET_MAX_PER_USER: z.coerce.number().int().min(1).max(10).default(3),

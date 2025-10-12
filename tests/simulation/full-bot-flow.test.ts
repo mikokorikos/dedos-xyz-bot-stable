@@ -925,6 +925,7 @@ describe('Simulación integral del bot', () => {
 
     const supportTicketUseCase = new OpenSupportTicketUseCase(ticketRepo, fakeLogger, {
       categoryId: 'support-category',
+      panelChannelId: null,
       staffRoleIds: ['role-staff'],
       maxTicketsPerUser: 3,
       cooldownMs: 0,
@@ -978,6 +979,8 @@ describe('Simulación integral del bot', () => {
       member: ownerMember.asGuildMember(),
       type: TicketType.BUY,
       reason: 'Necesito ayuda con un producto.',
+      channelPrefix: 'compra',
+      topicTag: 'buy_pets',
     });
     expect(supportChannel).toBeDefined();
     logger.complete('Ticket de soporte generado');

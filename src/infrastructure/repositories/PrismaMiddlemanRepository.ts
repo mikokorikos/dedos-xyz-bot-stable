@@ -263,7 +263,7 @@ export class PrismaMiddlemanRepository implements IMiddlemanRepository {
         pri.roblox_user_id AS identity_user_id,
         pri.verified AS identity_verified,
         pri.last_used_at AS identity_last_used_at,
-        COALESCE(vc.vouches_count, 0) AS vouches_count,
+        GREATEST(COALESCE(vc.vouches_count, 0), COALESCE(rr.rating_count, 0)) AS vouches_count,
         COALESCE(rr.rating_sum, 0) AS rating_sum,
         COALESCE(rr.rating_count, 0) AS rating_count,
         m.card_config AS card_config
@@ -324,7 +324,7 @@ export class PrismaMiddlemanRepository implements IMiddlemanRepository {
           pri.roblox_user_id AS identity_user_id,
           pri.verified AS identity_verified,
           pri.last_used_at AS identity_last_used_at,
-          COALESCE(vc.vouches_count, 0) AS vouches_count,
+        GREATEST(COALESCE(vc.vouches_count, 0), COALESCE(rr.rating_count, 0)) AS vouches_count,
           COALESCE(rr.rating_sum, 0) AS rating_sum,
           COALESCE(rr.rating_count, 0) AS rating_count,
           m.card_config AS card_config,
