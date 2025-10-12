@@ -2,12 +2,14 @@
 // RUTA: src/presentation/commands/admin/config.ts
 // ============================================================================
 
+import type { Message } from 'discord.js';
 import { GuildMember, SlashCommandBuilder } from 'discord.js';
 
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { PERMISSIONS } from '@/shared/config/constants';
 import { loadRuntimeConfig, updateRuntimeConfig } from '@/shared/config/runtime';
+import { brandMessageOptions } from '@/shared/utils/branding';
 import { hasPermissions } from '@/shared/utils/permissions';
 
 const CONFIG_KEYS = ['reviewsChannelId'] as const;
@@ -107,5 +109,134 @@ export const configCommand: Command = {
         ephemeral: true,
       });
     }
+  },
+  prefix: {
+    name: 'config',
+    async execute(message: Message, args: ReadonlyArray<string>) {
+      if (!message.guild) {
+        return;
+      }
+
+      const member =
+        message.member instanceof GuildMember
+          ? message.member
+          : await message.guild.members.fetch(message.author.id).catch(() => null);
+
+      if (!hasPermissions(member, PERMISSIONS.admin)) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.error({
+                title: 'Permisos insuficientes',
+                description: 'Necesitas permisos de administrador para usar `;config`.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const [rawSubcommand, rawKey, ...rawValue] = args;
+
+      if (!rawSubcommand) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.info({
+                title: 'Uso de ;config',
+                description:
+                  'Subcomandos disponibles:\n' +
+                  [';config get <clave>', ';config set <clave> <valor|null>'].map((line) => `• \`${line}\``).join('\n'),
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const subcommand = rawSubcommand.toLowerCase();
+      const key = rawKey?.toLowerCase() as ConfigKey | undefined;
+
+      if (!key || !CONFIG_KEYS.includes(key)) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Clave no válida',
+                description: `Debes usar una clave válida (${CONFIG_KEYS.join(', ')}).`,
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (subcommand === 'get') {
+        const config = await loadRuntimeConfig();
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.info({
+                title: 'Configuración actual',
+                fields: [{ name: key, value: String(config[key] ?? 'null') }],
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (subcommand === 'set') {
+        const valueInput = rawValue.join(' ');
+
+        if (valueInput.length === 0) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [
+                embedFactory.warning({
+                  title: 'Valor requerido',
+                  description: 'Proporciona un valor para actualizar la configuración (usa `null` para limpiar).',
+                }),
+              ],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+          return;
+        }
+
+        const normalizedValue = valueInput.trim().toLowerCase() === 'null' ? null : valueInput;
+        const updated = await updateRuntimeConfig({ [key]: normalizedValue } as Record<ConfigKey, string | null>);
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.success({
+                title: 'Configuración actualizada',
+                description: `La clave **${key}** ahora vale **${updated[key] ?? 'null'}**.`,
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      await message.reply(
+        brandMessageOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Subcomando desconocido',
+              description: 'Usa `;config get <clave>` o `;config set <clave> <valor|null>`.',
+            }),
+          ],
+          allowedMentions: { repliedUser: false },
+        }),
+      );
+    },
   },
 };

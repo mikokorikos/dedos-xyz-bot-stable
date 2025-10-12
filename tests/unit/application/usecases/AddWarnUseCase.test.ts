@@ -1,9 +1,13 @@
 import type { Logger } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AddWarnUseCase } from '@/application/usecases/warn/AddWarnUseCase';
+import { AddWarnUseCase } from '@/application/usecases/warns/AddWarnUseCase';
 import { Warn, WarnSeverity } from '@/domain/entities/Warn';
-import type { CreateWarnData, IWarnRepository } from '@/domain/repositories/IWarnRepository';
+import type {
+  CreateWarnData,
+  IWarnRepository,
+  WarnSummary,
+} from '@/domain/repositories/IWarnRepository';
 
 class InMemoryWarnRepository implements IWarnRepository {
   private sequence = 1;
@@ -34,6 +38,26 @@ class InMemoryWarnRepository implements IWarnRepository {
   public async listByUser(userId: bigint): Promise<readonly Warn[]> {
     return this.warns.filter((warn) => warn.userId.toBigInt() === userId);
   }
+
+  public async remove(): Promise<Warn | null> {
+    return null;
+  }
+
+  public async removeLatestByUser(): Promise<Warn | null> {
+    return null;
+  }
+
+  public async getSummary(userId: bigint): Promise<WarnSummary> {
+    const warns = await this.listByUser(userId);
+    const weightedScore = warns.reduce((acc, warn) => acc + warn.weight, 0);
+    const lastWarnAt = warns.length > 0 ? warns[warns.length - 1]!.createdAt : null;
+
+    return {
+      total: warns.length,
+      weightedScore,
+      lastWarnAt,
+    };
+  }
 }
 
 const createMockLogger = (): Logger =>
@@ -61,7 +85,7 @@ describe('AddWarnUseCase', () => {
     repository.preload(new Warn(2, BigInt('123456789012345678'), null, WarnSeverity.MAJOR, null, new Date()));
   });
 
-  it('returns recommended action based on summary', async () => {
+  it('returns escalation progress based on accumulated severity', async () => {
     const result = await useCase.execute({
       userId: '123456789012345678',
       moderatorId: '987654321098765432',
@@ -69,8 +93,11 @@ describe('AddWarnUseCase', () => {
       reason: 'Prueba',
     });
 
-    expect(result.summary.totalPoints).toBe(7);
-    expect(result.summary.recommendedAction).toBe('BAN');
+    expect(result.summary.total).toBe(3);
+    expect(result.summary.weightedScore).toBe(7);
+    expect(result.escalation.currentAction).toBe('TEMP_BAN');
+    expect(result.escalation.nextAction).toBe('BAN');
+    expect(result.escalation.remainingWeight).toBe(1);
     expect(result.warn.severity).toBe(WarnSeverity.CRITICAL);
   });
 });
