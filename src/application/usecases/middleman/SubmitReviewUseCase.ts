@@ -140,25 +140,28 @@ export class SubmitReviewUseCase {
     }
 
     await reviewsChannel.send(
-      brandMessageOptions({
-        embeds: [
-          this.embeds.reviewPublished({
-            ticketId: ticket.id,
-            middlemanTag: middlemanMention,
-            middlemanDisplayName,
-            reviewerTag: `<@${payload.reviewerId}>`,
-            rating: ratingValue,
-            comment: trimmedComment,
-            averageRating,
-            ownerTag,
-            partnerTag: partnerTag ?? undefined,
-            vouches: totalVouches,
-            reviewsCount: totalReviews,
-          }),
-        ],
-        files: cardAttachment ? [cardAttachment] : [],
-        allowedMentions: { users: Array.from(mentionTargets) },
-      }),
+      brandMessageOptions(
+        {
+          embeds: [
+            this.embeds.reviewPublished({
+              ticketId: ticket.id,
+              middlemanTag: middlemanMention,
+              middlemanDisplayName,
+              reviewerTag: `<@${payload.reviewerId}>`,
+              rating: ratingValue,
+              comment: trimmedComment,
+              averageRating,
+              ownerTag,
+              partnerTag: partnerTag ?? undefined,
+              vouches: totalVouches,
+              reviewsCount: totalReviews,
+            }),
+          ],
+          files: cardAttachment ? [cardAttachment] : [],
+          allowedMentions: { users: Array.from(mentionTargets) },
+        },
+        { useHeroImage: false },
+      ),
     );
     this.logger.info(
       {

@@ -19,7 +19,7 @@ import { ClaimTradeUseCase } from '@/application/usecases/middleman/ClaimTradeUs
 import { CloseTradeUseCase } from '@/application/usecases/middleman/CloseTradeUseCase';
 import { ConfirmFinalizationUseCase } from '@/application/usecases/middleman/ConfirmFinalizationUseCase';
 import { ConfirmTradeUseCase } from '@/application/usecases/middleman/ConfirmTradeUseCase';
-import OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { RequestTradeClosureUseCase } from '@/application/usecases/middleman/RequestTradeClosureUseCase';
 import { RevokeFinalizationUseCase } from '@/application/usecases/middleman/RevokeFinalizationUseCase';
 import { SubmitReviewUseCase } from '@/application/usecases/middleman/SubmitReviewUseCase';
@@ -534,6 +534,7 @@ class InMemoryMiddlemanRepository implements IMiddlemanRepository {
       reviewRequestedAt: null,
       closedAt: null,
       forcedClose: false,
+      vouched: false,
       panelMessageId: null,
       finalizationMessageId: null,
     });
@@ -545,10 +546,19 @@ class InMemoryMiddlemanRepository implements IMiddlemanRepository {
   ): Promise<void> {
     const claim = this.claims.get(ticketId);
     if (claim) {
+      const profile = this.profiles.get(claim.middlemanId);
+      const vouched = payload.forcedClose ? false : true;
+      if (profile && vouched && !claim.vouched) {
+        this.profiles.set(claim.middlemanId, {
+          ...profile,
+          vouches: profile.vouches + 1,
+        });
+      }
       this.claims.set(ticketId, {
         ...claim,
         closedAt: payload.closedAt,
         forcedClose: payload.forcedClose ?? false,
+        vouched,
       });
     }
   }
