@@ -83,6 +83,13 @@ export class OpenSupportTicketUseCase {
     }
 
     const parentId = await this.resolveParentCategoryId(guild, originChannelId);
+    if (!parentId) {
+      throw new ValidationFailedError({
+        categoryId:
+          'Debe configurarse TICKET_CATEGORY_ID en el entorno o publicar el panel en una categoría válida.',
+      });
+    }
+
     const channelName = this.buildChannelName({ type, channelPrefix, member });
     const topic = this.buildTopic(topicTag ?? type.toLowerCase(), member.id);
     const staffRoleIds = this.filterStaffRoleIds(guild);
@@ -92,7 +99,7 @@ export class OpenSupportTicketUseCase {
       createdChannel = await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
-        parent: parentId ?? undefined,
+        parent: parentId,
         topic,
         permissionOverwrites: [
           {
@@ -186,29 +193,14 @@ export class OpenSupportTicketUseCase {
     guild: Guild,
     originChannelId?: string,
   ): Promise<string | null> {
+    if (this.options.categoryId) {
+      return this.options.categoryId;
+    }
+
     const channels = guild.channels as Partial<Guild['channels']> & {
       cache?: { get: (id: string) => unknown } | null;
       fetch?: (id: string) => Promise<unknown>;
     };
-
-    if (this.options.categoryId) {
-      const cached =
-        channels.cache && typeof channels.cache.get === 'function'
-          ? (channels.cache.get(this.options.categoryId) as { id?: string; type?: ChannelType } | null)
-          : null;
-      const category =
-        cached ??
-        (typeof channels.fetch === 'function'
-          ? ((await channels.fetch(this.options.categoryId).catch(() => null)) as {
-              id?: string;
-              type?: ChannelType;
-            } | null)
-          : null);
-
-      if (category?.type === ChannelType.GuildCategory) {
-        return category.id ?? null;
-      }
-    }
 
     const resolveFromChannelId = async (channelId: string): Promise<string | null> => {
       const cached =

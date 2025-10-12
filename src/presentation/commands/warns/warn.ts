@@ -2,7 +2,8 @@
 // RUTA: src/presentation/commands/warns/warn.ts
 // ============================================================================
 
-import { GuildMember, SlashCommandBuilder } from 'discord.js';
+import type { Message } from 'discord.js';
+import { ChannelType, GuildMember, SlashCommandBuilder } from 'discord.js';
 
 import {
   AddWarnUseCase,
@@ -12,16 +13,18 @@ import {
 } from '@/application/usecases/warns/AddWarnUseCase';
 import { ListWarnsUseCase } from '@/application/usecases/warns/ListWarnsUseCase';
 import { RemoveWarnUseCase } from '@/application/usecases/warns/RemoveWarnUseCase';
-import { WarnSeverity } from '@/domain/entities/Warn';
+import { type Warn, WarnSeverity } from '@/domain/entities/Warn';
 import type { WarnSummary } from '@/domain/repositories/IWarnRepository';
 import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaWarnRepository } from '@/infrastructure/repositories/PrismaWarnRepository';
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { COOLDOWNS, PERMISSIONS } from '@/shared/config/constants';
+import { env } from '@/shared/config/env';
 import { logger } from '@/shared/logger/pino';
+import { brandMessageOptions } from '@/shared/utils/branding';
 import { cooldownManager } from '@/shared/utils/cooldown-manager';
-import { mentionUser } from '@/shared/utils/discord.utils';
+import { isValidSnowflake, mentionUser } from '@/shared/utils/discord.utils';
 import { dmQueue } from '@/shared/utils/dm-queue';
 import { hasPermissions } from '@/shared/utils/permissions';
 
@@ -84,6 +87,390 @@ const buildWarnSummaryFields = (
   ...formatEscalationFields(summary, escalation),
 });
 
+const PREFIX_USAGE_LINES = [
+  `${env.COMMAND_PREFIX}warn add @usuario <leve|grave|critica> [razon opcional]`,
+  `${env.COMMAND_PREFIX}warn remove <warn_id>`,
+  `${env.COMMAND_PREFIX}warn list @usuario`,
+];
+
+const PREFIX_USAGE_DESCRIPTION = PREFIX_USAGE_LINES.map((line) => `• \`${line}\``).join('\n');
+
+const normalizeToken = (value: string): string =>
+  value
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+
+const SEVERITY_ALIASES: Record<string, WarnSeverity> = {
+  leve: WarnSeverity.MINOR,
+  ligera: WarnSeverity.MINOR,
+  light: WarnSeverity.MINOR,
+  minor: WarnSeverity.MINOR,
+  grave: WarnSeverity.MAJOR,
+  mayor: WarnSeverity.MAJOR,
+  major: WarnSeverity.MAJOR,
+  alta: WarnSeverity.MAJOR,
+  critica: WarnSeverity.CRITICAL,
+  critico: WarnSeverity.CRITICAL,
+  critical: WarnSeverity.CRITICAL,
+};
+
+const extractTargetFromArgs = (
+  message: Message,
+  args: ReadonlyArray<string>,
+): { readonly userId: string | null; readonly remaining: string[] } => {
+  const mutable = [...args];
+  const mention = message.mentions.users.first();
+
+  if (mention) {
+    const mentionIndex = mutable.findIndex((token) => token.includes(mention.id));
+    if (mentionIndex >= 0) {
+      mutable.splice(mentionIndex, 1);
+    }
+    return { userId: mention.id, remaining: mutable };
+  }
+
+  if (mutable.length === 0) {
+    return { userId: null, remaining: mutable };
+  }
+
+  const candidate = mutable[0]!;
+  const sanitized = candidate.replace(/<@!?|>/g, '');
+
+  if (isValidSnowflake(sanitized)) {
+    mutable.shift();
+    return { userId: sanitized, remaining: mutable };
+  }
+
+  return { userId: null, remaining: mutable };
+};
+
+const buildWarnHistoryDescription = (warns: readonly Warn[]): string => {
+  if (warns.length === 0) {
+    return 'El miembro no cuenta con advertencias registradas.';
+  }
+
+  return warns
+    .slice(0, 10)
+    .map((warn) => {
+      const timestamp = `<t:${Math.floor(warn.createdAt.getTime() / 1000)}:R>`;
+      const reason = warn.reason ? ` — ${warn.reason}` : '';
+      return `• **${WARN_SEVERITY_LABELS[warn.severity]}**${reason} (${timestamp})`;
+    })
+    .join('\n');
+};
+
+const respondWithPrefixUsage = async (message: Message): Promise<void> => {
+  await message.reply(
+    brandMessageOptions({
+      embeds: [
+        embedFactory.info({
+          title: 'Uso de ;warn',
+          description:
+            'Subcomandos disponibles para administrar advertencias:\n' + PREFIX_USAGE_DESCRIPTION,
+        }),
+      ],
+      allowedMentions: { repliedUser: false },
+    }),
+  );
+};
+
+const handlePrefixWarnAdd = async (message: Message, args: ReadonlyArray<string>): Promise<void> => {
+  if (!message.guild) {
+    return;
+  }
+
+  const { userId, remaining } = extractTargetFromArgs(message, args);
+  if (!userId) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Usuario no válido',
+            description: 'Debes mencionar a un usuario o proporcionar su ID numérica.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  if (remaining.length === 0) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Falta la severidad',
+            description: 'Indica si la advertencia es leve, grave o crítica.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const severityToken = normalizeToken(remaining[0]!);
+  const severity = SEVERITY_ALIASES[severityToken];
+
+  if (!severity) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Severidad no válida',
+            description: 'Usa leve, grave o crítica para definir la advertencia.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const reason = remaining.slice(1).join(' ').trim() || undefined;
+
+  let targetMember: GuildMember | null = null;
+  try {
+    targetMember = await message.guild.members.fetch(userId);
+  } catch {
+    targetMember = null;
+  }
+
+  if (!targetMember) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'Miembro no encontrado',
+            description: 'No pude encontrar a ese usuario en el servidor.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  if (targetMember.user.bot) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Acción no permitida',
+            description: 'No puedes advertir a un bot.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const cooldownKey = `warn:${message.author.id}`;
+  if (!cooldownManager.consume(cooldownKey, message.author.id, COOLDOWNS.warnCommand)) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Espera un momento',
+            description: 'Estás ejecutando este comando demasiado rápido. Inténtalo de nuevo en unos segundos.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  let result: Awaited<ReturnType<typeof addWarnUseCase.execute>>;
+  try {
+    result = await addWarnUseCase.execute({
+      userId,
+      moderatorId: message.author.id,
+      severity,
+      reason,
+    });
+  } catch (error) {
+    logger.error({ err: error, messageId: message.id }, 'No se pudo registrar la advertencia vía prefijo.');
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'No se pudo registrar la advertencia',
+            description: 'Ocurrió un problema al guardar la advertencia. Intenta nuevamente.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const staffSummaryFields = buildWarnSummaryFields(
+    mentionUser(userId),
+    result.summary,
+    result.escalation,
+  );
+  const dmSummaryFields = buildWarnSummaryFields(targetMember.user.tag, result.summary, result.escalation);
+  const severityLabel = WARN_SEVERITY_LABELS[severity];
+
+  await message.reply(
+    brandMessageOptions({
+      embeds: [
+        embedFactory.warnApplied({
+          userTag: mentionUser(userId),
+          moderatorTag: mentionUser(message.author.id),
+          severity: severityLabel,
+          reason,
+        }),
+        embedFactory.warnSummary(staffSummaryFields),
+      ],
+      allowedMentions: { users: [userId], repliedUser: false },
+    }),
+  );
+
+  try {
+    await dmQueue.enqueue(targetMember.user, {
+      embeds: [
+        embedFactory.warnApplied({
+          userTag: targetMember.user.toString(),
+          moderatorTag: mentionUser(message.author.id),
+          severity: severityLabel,
+          reason,
+        }),
+        embedFactory.warnSummary(dmSummaryFields),
+      ],
+    });
+  } catch (error) {
+    logger.warn({ err: error, userId }, 'No se pudo enviar la advertencia por DM.');
+  }
+};
+
+const handlePrefixWarnRemove = async (message: Message, args: ReadonlyArray<string>): Promise<void> => {
+  if (args.length === 0) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Falta el ID de la advertencia',
+            description: 'Especifica el ID numérico de la advertencia que deseas eliminar.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const warnIdToken = args[0]!;
+  if (!/^\d+$/.test(warnIdToken)) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'ID inválido',
+            description: 'El ID de la advertencia debe ser un número entero positivo.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const warnId = Number.parseInt(warnIdToken, 10);
+
+  try {
+    await removeWarnUseCase.execute({ warnId });
+  } catch (error) {
+    logger.warn({ err: error, warnId, messageId: message.id }, 'No se pudo eliminar la advertencia vía prefijo.');
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'No se pudo eliminar la advertencia',
+            description: 'Verifica el ID proporcionado e inténtalo nuevamente.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  await message.reply(
+    brandMessageOptions({
+      embeds: [
+        embedFactory.success({
+          title: 'Advertencia eliminada',
+          description: `La advertencia #${warnId} fue eliminada correctamente.`,
+        }),
+      ],
+      allowedMentions: { repliedUser: false },
+    }),
+  );
+};
+
+const handlePrefixWarnList = async (message: Message, args: ReadonlyArray<string>): Promise<void> => {
+  if (!message.guild) {
+    return;
+  }
+
+  const { userId } = extractTargetFromArgs(message, args);
+  if (!userId) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Usuario no válido',
+            description: 'Debes mencionar a un usuario o proporcionar su ID numérica.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  let result: Awaited<ReturnType<typeof listWarnsUseCase.execute>>;
+  try {
+    result = await listWarnsUseCase.execute({ userId });
+  } catch (error) {
+    logger.warn({ err: error, userId, messageId: message.id }, 'No se pudo listar advertencias vía prefijo.');
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'No se pudo obtener la información',
+            description: 'Ocurrió un error al consultar las advertencias del usuario.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const escalation = resolveEscalationProgress(result.summary);
+  const summaryFields = buildWarnSummaryFields(mentionUser(userId), result.summary, escalation);
+  const historyDescription = buildWarnHistoryDescription(result.warns);
+
+  await message.reply(
+    brandMessageOptions({
+      embeds: [
+        embedFactory.warnSummary(summaryFields),
+        embedFactory.info({
+          title: result.warns.length ? 'Historial de advertencias' : 'Sin advertencias activas',
+          description: historyDescription,
+        }),
+      ],
+      allowedMentions: { users: [userId], repliedUser: false },
+    }),
+  );
+};
+
 export const warnCommand: Command = {
   data: new SlashCommandBuilder()
     .setName('warn')
@@ -131,7 +518,86 @@ export const warnCommand: Command = {
         ),
     ),
   category: 'Moderación',
-  examples: ['/warn add usuario:@Miembro severidad:Leve', '/warn list usuario:@Miembro'],
+  examples: [
+    '/warn add usuario:@Miembro severidad:Leve',
+    '/warn list usuario:@Miembro',
+    `${env.COMMAND_PREFIX}warn add @Miembro leve Incumplimiento de reglas`,
+    `${env.COMMAND_PREFIX}warn list @Miembro`,
+  ],
+  prefix: {
+    name: 'warn',
+    async execute(message, args) {
+      if (!message.guild || message.channel.type !== ChannelType.GuildText) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Canal no compatible',
+                description: 'Este comando solo puede usarse en canales de texto del servidor.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (!hasPermissions(message.member, PERMISSIONS.staff)) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Permisos insuficientes',
+                description: 'Necesitas permisos de staff para administrar advertencias.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (args.length === 0) {
+        await respondWithPrefixUsage(message);
+        return;
+      }
+
+      const [subcommandRaw, ...rest] = args;
+      const subcommand = normalizeToken(subcommandRaw ?? '');
+
+      if (!subcommand || subcommand === 'help') {
+        await respondWithPrefixUsage(message);
+        return;
+      }
+
+      if (subcommand === 'add') {
+        await handlePrefixWarnAdd(message, rest);
+        return;
+      }
+
+      if (subcommand === 'remove' || subcommand === 'delete' || subcommand === 'del') {
+        await handlePrefixWarnRemove(message, rest);
+        return;
+      }
+
+      if (subcommand === 'list' || subcommand === 'mostrar' || subcommand === 'ver') {
+        await handlePrefixWarnList(message, rest);
+        return;
+      }
+
+      await message.reply(
+        brandMessageOptions({
+          embeds: [
+            embedFactory.warning({
+              title: 'Subcomando desconocido',
+              description: 'Usa `add`, `remove` o `list` para administrar advertencias.',
+            }),
+          ],
+          allowedMentions: { repliedUser: false },
+        }),
+      );
+    },
+  },
   async execute(interaction) {
     if (!interaction.guild) {
       await interaction.reply({
@@ -198,13 +664,14 @@ export const warnCommand: Command = {
         result.escalation,
       );
       const dmSummaryFields = buildWarnSummaryFields(target.tag, result.summary, result.escalation);
+      const severityLabel = WARN_SEVERITY_LABELS[severity];
 
       await interaction.editReply({
         embeds: [
           embedFactory.warnApplied({
             userTag: mentionUser(target.id),
             moderatorTag: mentionUser(interaction.user.id),
-            severity,
+            severity: severityLabel,
             reason,
           }),
           embedFactory.warnSummary(staffSummaryFields),
@@ -217,7 +684,7 @@ export const warnCommand: Command = {
             embedFactory.warnApplied({
               userTag: target.toString(),
               moderatorTag: mentionUser(interaction.user.id),
-              severity,
+              severity: severityLabel,
               reason,
             }),
             embedFactory.warnSummary(dmSummaryFields),

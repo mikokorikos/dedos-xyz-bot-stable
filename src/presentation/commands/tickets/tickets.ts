@@ -311,6 +311,25 @@ registerButtonHandler(
       }),
     );
   } catch (error) {
+    if (error instanceof ValidationFailedError) {
+      const rawHint = error.metadata?.['categoryId'];
+      const configHint = typeof rawHint === 'string' ? rawHint : null;
+
+      if (configHint) {
+        await interaction.editReply(
+          brandEditReplyOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Configuración requerida',
+                description: `${configHint}\n\nContacta a un administrador para actualizar la configuración del bot.`,
+              }),
+            ],
+          }),
+        );
+        return;
+      }
+    }
+
     const { shouldLogStack, referenceId, embeds, ...payload } = mapErrorToDiscordResponse(error);
 
     if (shouldLogStack) {
