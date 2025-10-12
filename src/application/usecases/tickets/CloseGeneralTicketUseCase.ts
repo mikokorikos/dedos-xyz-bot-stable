@@ -53,6 +53,10 @@ export class CloseGeneralTicketUseCase {
       }
     }
 
+    if (!ticket.canBeClosed()) {
+      ticket.confirm();
+    }
+
     ticket.close();
     await this.ticketRepository.update(ticket);
 
