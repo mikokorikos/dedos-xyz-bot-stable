@@ -13,8 +13,12 @@ export class RemoveWarnUseCase {
   public async execute(payload: RemoveWarnDTO): Promise<void> {
     const data = RemoveWarnSchema.parse(payload);
 
-    await this.warnRepository.remove(data.warnId);
+    const removed = await this.warnRepository.remove(data.warnId);
 
-    this.logger.info({ warnId: data.warnId }, 'Warn eliminado correctamente.');
+    if (!removed) {
+      throw new Error(`No se encontró el warn ${data.warnId}.`);
+    }
+
+    this.logger.info({ warnId: data.warnId, userId: removed.userId }, 'Warn eliminado correctamente.');
   }
 }

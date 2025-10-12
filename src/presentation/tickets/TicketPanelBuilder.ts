@@ -11,6 +11,7 @@ import {
 
 import { TicketType } from '@/domain/entities/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { fxService } from '@/presentation/services/community';
 import { ValidationFailedError } from '@/shared/errors/domain.errors';
 
 export const TICKET_PANEL_MENU_ID = 'tickets:panel:menu';
@@ -66,6 +67,42 @@ const TICKET_OPTIONS: Array<{
   },
 ];
 
+const PAYMENT_METHODS = [
+  '💳 Transferencia bancaria (MX)',
+  '🏦 Depósitos OXXO',
+  '🪙 Litecoin (global)',
+  '💸 PayPal (se aplican comisiones de la plataforma)',
+];
+
+const PET_SAMPLE_PRICES = [
+  { name: 'Disco Bee', mxn: 80 },
+  { name: 'Kitsune', mxn: 260 },
+  { name: 'Butterfly', mxn: 35 },
+];
+
+const buildPriceLine = (item: { name: string; mxn: number }): string =>
+  `• ${item.name}: **$${item.mxn} MXN** (${fxService.formatUsdFromMxn(item.mxn)})`;
+
+const buildTicketFields = () => [
+  {
+    name: '🐾 Precios de ejemplo',
+    value: PET_SAMPLE_PRICES.map(buildPriceLine).join('\n'),
+  },
+  {
+    name: '💼 Métodos de pago',
+    value: PAYMENT_METHODS.join('\n'),
+  },
+  {
+    name: '📌 Cláusulas clave',
+    value: [
+      '• Los precios mostrados no incluyen impuestos de plataformas externas.',
+      '• Pagos por PayPal agregan la comisión correspondiente.',
+      '• El equipo confirmará stock y tiempos antes de cualquier pago.',
+    ].join('\n'),
+  },
+  fxService.buildInfoField(),
+];
+
 export const buildTicketPanelMessage = (): {
   readonly embeds: EmbedBuilder[];
   readonly components: [ActionRowBuilder<StringSelectMenuBuilder>];
@@ -76,7 +113,9 @@ export const buildTicketPanelMessage = (): {
     description: [
       'Selecciona la opción que mejor describa tu solicitud.',
       'Un miembro del staff responderá lo antes posible.',
+      'Consulta precios, métodos de pago y reglas antes de confirmar tu pedido.',
     ].join('\n'),
+    fields: buildTicketFields(),
   });
 
   const menu = new StringSelectMenuBuilder()

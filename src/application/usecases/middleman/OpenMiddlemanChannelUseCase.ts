@@ -15,6 +15,7 @@ import type { Logger } from 'pino';
 import { type CreateMiddlemanTicketDTO, CreateMiddlemanTicketSchema } from '@/application/dto/ticket.dto';
 import { TicketType } from '@/domain/entities/types';
 import type { ITicketRepository, TicketParticipantInput } from '@/domain/repositories/ITicketRepository';
+import type { TransactionProvider } from '@/domain/repositories/transaction';
 import { middlemanCardGenerator } from '@/infrastructure/external/MiddlemanCardGenerator';
 import type { EmbedFactory } from '@/presentation/embeds/EmbedFactory';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
@@ -27,6 +28,9 @@ import {
 import { brandMessageOptions } from '@/shared/utils/branding';
 import { sanitizeChannelName } from '@/shared/utils/discord.utils';
 import { snapshotFromMember } from '@/shared/utils/discordIdentity';
+
+const USER_MENTION_RE = /^<@!?([0-9]{17,20})>$/u;
+const USER_ID_RE = /^[0-9]{17,20}$/u;
 
 const MAX_OPEN_TICKETS = 3;
 
@@ -82,6 +86,27 @@ const resolveFromCache = (guild: Guild, normalized: string): GuildMember[] => {
   return matches;
 };
 
+const searchMembers = async (
+  guild: Guild,
+  normalized: string,
+  logger: Logger,
+): Promise<GuildMember[]> => {
+  if (typeof guild.members.search !== 'function') {
+    return [];
+  }
+
+  try {
+    const results = await guild.members.search({ query: normalized, limit: 5 });
+    return Array.from(results.values()).filter((member): member is GuildMember => Boolean(member));
+  } catch (error) {
+    logger.warn(
+      { err: error, guildId: guild.id, query: normalized },
+      'Fallo al buscar miembros del gremio para middleman.',
+    );
+    return [];
+  }
+};
+
 const buildAmbiguousError = (members: ReadonlyArray<GuildMember>): ValidationFailedError => {
   const preview = members
     .slice(0, 5)
@@ -114,6 +139,30 @@ const resolveUserId = async (
   }
 
   const cacheHits = resolveFromCache(guild, normalized);
+  const [singleCacheHit] = cacheHits;
+  if (singleCacheHit && cacheHits.length === 1) {
+    return singleCacheHit.id;
+  }
+
+  if (cacheHits.length > 1) {
+    throw buildAmbiguousError(cacheHits);
+  }
+
+  const searchHits = await searchMembers(guild, normalized, logger);
+  const [singleSearchHit] = searchHits;
+  if (singleSearchHit && searchHits.length === 1) {
+    return singleSearchHit.id;
+  }
+
+  if (searchHits.length > 1) {
+    throw buildAmbiguousError(searchHits);
+  }
+
+  throw new ValidationFailedError({
+    partnerTag:
+      'No se encontró ningún usuario con ese nombre. Usa la **mención** (`<@...>`) o el **ID**.',
+  });
+};
 
 export class OpenMiddlemanChannelUseCase {
   public constructor(
@@ -163,7 +212,8 @@ export class OpenMiddlemanChannelUseCase {
       });
     }
 
-    const partnerId = BigInt(partnerTag);
+    const partnerIdStr = await resolveUserId(partnerTag, guild, this.logger);
+    const partnerId = BigInt(partnerIdStr);
 
     const ownerMember = await guild.members.fetch(payload.userId).catch(() => null);
     if (!ownerMember) {

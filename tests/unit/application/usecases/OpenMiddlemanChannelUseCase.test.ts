@@ -2,7 +2,7 @@ import { Collection, type Guild, type GuildMember, type TextChannel, type User }
 import type { Logger } from 'pino';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { Ticket } from '@/domain/entities/Ticket';
 import { TicketStatus } from '@/domain/entities/types';
 import type {
@@ -10,7 +10,7 @@ import type {
   ITicketRepository,
 } from '@/domain/repositories/ITicketRepository';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
-import { TooManyOpenTicketsError, ValidationFailedError } from '@/shared/errors/domain.errors';
+import { TooManyOpenTicketsError } from '@/shared/errors/domain.errors';
 
 const USER_ID = '123456789012345678';
 const GUILD_ID = '876543210987654321';
