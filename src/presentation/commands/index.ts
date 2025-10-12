@@ -18,6 +18,8 @@ import { tradeCommand } from '@/presentation/commands/middleman/trade';
 import { statsCommand } from '@/presentation/commands/stats/stats';
 import { ticketsPanelCommand } from '@/presentation/commands/tickets/tickets';
 import type { Command } from '@/presentation/commands/types';
+import { unwarnCommand } from '@/presentation/commands/warns/unwarn';
+import { verbalWarnCommand } from '@/presentation/commands/warns/verbal-warn';
 
 const commands: Command[] = [
   pingCommand,
@@ -28,6 +30,8 @@ const commands: Command[] = [
   tradeCommand,
   statsCommand,
   ticketsPanelCommand,
+  unwarnCommand,
+  verbalWarnCommand,
 ];
 
 registerCommands(commands);

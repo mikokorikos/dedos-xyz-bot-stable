@@ -6,6 +6,7 @@ import type { ChatInputCommandInteraction, Message, TextChannel } from 'discord.
 import { ChannelType, MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 import { CloseTradeUseCase } from '@/application/usecases/middleman/CloseTradeUseCase';
+import { DeleteTradeChannelUseCase } from '@/application/usecases/middleman/DeleteTradeChannelUseCase';
 import { RequestTradeClosureUseCase } from '@/application/usecases/middleman/RequestTradeClosureUseCase';
 import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaMemberStatsRepository } from '@/infrastructure/repositories/PrismaMemberStatsRepository';
@@ -16,7 +17,7 @@ import { PrismaTradeRepository } from '@/infrastructure/repositories/PrismaTrade
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
-import { TicketNotFoundError } from '@/shared/errors/domain.errors';
+import { ChannelDeletionError, TicketNotFoundError } from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
 import { brandEditReplyOptions, brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
 
@@ -44,6 +45,8 @@ const requestClosureUseCase = new RequestTradeClosureUseCase(
   embedFactory,
   logger,
 );
+
+const deleteChannelUseCase = new DeleteTradeChannelUseCase(ticketRepository, middlemanRepository);
 
 const ensureTextChannel = (interaction: ChatInputCommandInteraction): TextChannel | null => {
   const channel = interaction.channel;
@@ -145,6 +148,37 @@ const handleCloseInteraction = async (
   );
 };
 
+const handleDeleteInteraction = async (
+  interaction: ChatInputCommandInteraction,
+  channel: TextChannel,
+): Promise<void> => {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const { ticketId } = await deleteChannelUseCase.execute(BigInt(channel.id), BigInt(interaction.user.id));
+
+  try {
+    await channel.delete('Middleman trade archived by command');
+  } catch (error) {
+    throw new ChannelDeletionError(channel.id, error);
+  }
+
+  await interaction.editReply(
+    brandEditReplyOptions({
+      embeds: [
+        embedFactory.success({
+          title: 'Canal eliminado',
+          description: 'El canal del trade se eliminó correctamente.',
+        }),
+      ],
+    }),
+  );
+
+  logger.info(
+    { channelId: channel.id, ticketId, actorId: interaction.user.id },
+    'Canal de trade eliminado mediante /trade delete.',
+  );
+};
+
 const handlePrefixFinalize = async (message: Message): Promise<void> => {
   const channel = ensureMessageChannel(message);
 
@@ -230,6 +264,53 @@ const handlePrefixClose = async (message: Message): Promise<void> => {
   }
 };
 
+const handlePrefixDelete = async (message: Message): Promise<void> => {
+  const channel = ensureMessageChannel(message);
+
+  if (!channel) {
+    return;
+  }
+
+  try {
+    await deleteChannelUseCase.execute(BigInt(channel.id), BigInt(message.author.id));
+  } catch (error) {
+    await replyWithError(message, error);
+    return;
+  }
+
+  try {
+    await channel.send(
+      brandMessageOptions(
+        {
+          embeds: [
+            embedFactory.success({
+              title: 'Canal eliminado',
+              description: 'Este canal se eliminará en breve.',
+            }),
+          ],
+          allowedMentions: { repliedUser: false },
+        },
+        { useHeroImage: false },
+      ),
+    );
+  } catch {
+    // ignore failure to send prior to deletion
+  }
+
+  try {
+    await channel.delete('Middleman trade archived by prefix command');
+  } catch (error) {
+    logger.error({ err: error, channelId: channel.id }, 'No se pudo eliminar el canal del trade.');
+    await replyWithError(message, new ChannelDeletionError(channel.id, error));
+    return;
+  }
+
+  logger.info(
+    { channelId: channel.id, actorId: message.author.id },
+    'Canal de trade eliminado mediante ;trade delete.',
+  );
+};
+
 const replyWithError = async (message: Message, error: unknown): Promise<void> => {
   const { shouldLogStack, referenceId, embeds, ...payload } = mapErrorToDiscordResponse(error);
 
@@ -270,21 +351,27 @@ export const tradeCommand: Command = {
       sub
         .setName('close')
         .setDescription('Cierra el trade cuando todos confirmaron la finalización'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('delete')
+        .setDescription('Elimina el canal del trade una vez archivado'),
     ),
   category: 'Middleman',
-  examples: ['/trade finalize', '/trade close', ';trade finalize', ';trade close'],
+  examples: ['/trade finalize', '/trade close', '/trade delete', ';trade finalize', ';trade close', ';trade delete'],
   prefix: {
     name: 'trade',
     async execute(message, args) {
       const [subcommand] = args;
-      const normalized = subcommand?.toLowerCase();
+      const normalized = subcommand?.trim().toLowerCase();
 
       if (!normalized || normalized === 'help') {
         await message.reply({
           embeds: [
             embedFactory.info({
               title: 'Uso de ;trade',
-              description: 'Subcomandos disponibles: `finalize` y `close`. Ejemplo: `;trade finalize`.',
+              description:
+                'Subcomandos disponibles: `finalize`, `close` y `delete`. Ejemplo: `;trade finalize`.',
             }),
           ],
           allowedMentions: { repliedUser: false },
@@ -302,11 +389,16 @@ export const tradeCommand: Command = {
         return;
       }
 
+      if (normalized === 'delete') {
+        await handlePrefixDelete(message);
+        return;
+      }
+
       await message.reply({
         embeds: [
           embedFactory.warning({
             title: 'Subcomando desconocido',
-            description: 'Utiliza `finalize` o `close` para administrar el trade.',
+            description: 'Utiliza `finalize`, `close` o `delete` para administrar el trade.',
           }),
         ],
         allowedMentions: { repliedUser: false },
@@ -333,12 +425,17 @@ export const tradeCommand: Command = {
         return;
       }
 
+      if (subcommand === 'delete') {
+        await handleDeleteInteraction(interaction, channel);
+        return;
+      }
+
       await interaction.reply(
         brandReplyOptions({
           embeds: [
             embedFactory.warning({
               title: 'Subcomando desconocido',
-              description: 'Utiliza `finalize` o `close` para administrar el trade.',
+              description: 'Utiliza `finalize`, `close` o `delete` para administrar el trade.',
             }),
           ],
           flags: MessageFlags.Ephemeral,
