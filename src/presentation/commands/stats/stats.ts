@@ -15,6 +15,8 @@ import type { MemberTradeStats } from '@/domain/entities/MemberTradeStats';
 import { prisma } from '@/infrastructure/db/prisma';
 import { memberCardGenerator } from '@/infrastructure/external/MemberCardGenerator';
 import { PrismaMemberStatsRepository } from '@/infrastructure/repositories/PrismaMemberStatsRepository';
+import { PrismaMiddlemanRepository } from '@/infrastructure/repositories/PrismaMiddlemanRepository';
+import { PrismaWarnRepository } from '@/infrastructure/repositories/PrismaWarnRepository';
 import type { Command } from '@/presentation/commands/types';
 import { registerSelectMenuHandler } from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
@@ -24,7 +26,9 @@ import { logger } from '@/shared/logger/pino';
 import { brandEditReplyOptions, brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
 
 const statsRepository = new PrismaMemberStatsRepository(prisma);
-const getStatsUseCase = new GetMemberStatsUseCase(statsRepository);
+const middlemanRepository = new PrismaMiddlemanRepository(prisma);
+const warnRepository = new PrismaWarnRepository(prisma);
+const getStatsUseCase = new GetMemberStatsUseCase(statsRepository, middlemanRepository, warnRepository);
 
 const USER_ID_PATTERN = /^(?:<@!?(\d{17,20})>|(\d{17,20}))$/u;
 
