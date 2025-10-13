@@ -10,6 +10,7 @@ import type { ITicketRepository } from '@/domain/repositories/ITicketRepository'
 import type { ITradeRepository } from '@/domain/repositories/ITradeRepository';
 import { TradeStatus } from '@/domain/value-objects/TradeStatus';
 import { UnauthorizedActionError } from '@/shared/errors/domain.errors';
+import type { RobloxUserRecord, RobloxUsersService } from '@/shared/services/RobloxUsersService';
 
 class MockTicketRepository implements ITicketRepository {
   public ticket: Ticket | null = null;
@@ -107,6 +108,14 @@ class MockTradeRepository implements ITradeRepository {
   public async delete(): Promise<void> {}
 }
 
+class MockRobloxUsersService implements RobloxUsersService {
+  public responses = new Map<string, RobloxUserRecord | null>();
+
+  public async lookupByUsername(username: string): Promise<RobloxUserRecord | null> {
+    return this.responses.get(username) ?? null;
+  }
+}
+
 const createLogger = (): Logger =>
   ({
     info: vi.fn(),
@@ -125,18 +134,21 @@ describe('SubmitTradeDataUseCase', () => {
   const OTHER_ID = '333333333333333333';
   let ticketRepo: MockTicketRepository;
   let tradeRepo: MockTradeRepository;
+  let robloxUsers: MockRobloxUsersService;
   let useCase: SubmitTradeDataUseCase;
 
   beforeEach(() => {
     ticketRepo = new MockTicketRepository();
     tradeRepo = new MockTradeRepository();
-    useCase = new SubmitTradeDataUseCase(ticketRepo, tradeRepo, createLogger());
+    robloxUsers = new MockRobloxUsersService();
+    useCase = new SubmitTradeDataUseCase(ticketRepo, tradeRepo, robloxUsers, createLogger());
 
     ticketRepo.ticket = new Ticket(1, BigInt(OWNER_ID), BigInt(2), BigInt(PARTNER_ID), TicketType.MM, TicketStatus.OPEN, new Date());
     ticketRepo.participants = new Set([OWNER_ID, PARTNER_ID]);
   });
 
   it('creates a new trade when participant submits data', async () => {
+    robloxUsers.responses.set('TraderOne', { id: BigInt('7777777777'), username: 'TraderOne' });
     const dto: SubmitTradeDataDTO = {
       ticketId: 1,
       userId: PARTNER_ID,
@@ -148,6 +160,7 @@ describe('SubmitTradeDataUseCase', () => {
 
     expect(tradeRepo.trades).toHaveLength(1);
     expect(trade.robloxUsername).toBe('TraderOne');
+    expect(trade.robloxUserId).toBe(BigInt('7777777777'));
     expect(trade.items).toHaveLength(1);
     expect(trade.confirmed).toBe(false);
   });
@@ -155,6 +168,7 @@ describe('SubmitTradeDataUseCase', () => {
   it('updates existing trade and resets confirmation', async () => {
     const existing = new Trade(1, 1, BigInt(PARTNER_ID), 'OldName', null, null, TradeStatus.ACTIVE, true, [], new Date());
     tradeRepo.trades = [existing];
+    robloxUsers.responses.set('UpdatedName', { id: BigInt('8888888888'), username: 'UpdatedName' });
 
     const dto: SubmitTradeDataDTO = {
       ticketId: 1,
@@ -167,7 +181,22 @@ describe('SubmitTradeDataUseCase', () => {
 
     expect(trade.robloxUsername).toBe('UpdatedName');
     expect(trade.confirmed).toBe(false);
+    expect(trade.robloxUserId).toBe(BigInt('8888888888'));
     expect(tradeRepo.updated).toBe(true);
+  });
+
+  it('keeps provided username when Roblox lookup fails', async () => {
+    const dto: SubmitTradeDataDTO = {
+      ticketId: 1,
+      userId: PARTNER_ID,
+      robloxUsername: 'UnknownUser',
+      offerDescription: 'Datos incompletos',
+    };
+
+    const trade = await useCase.execute(dto);
+
+    expect(trade.robloxUsername).toBe('UnknownUser');
+    expect(trade.robloxUserId).toBeNull();
   });
 
   it('throws when user is not participant', async () => {

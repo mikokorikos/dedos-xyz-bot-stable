@@ -135,6 +135,17 @@ export class TradeAlreadyConfirmedError extends DedosError {
   }
 }
 
+export class RobloxIdentityNotVerifiedError extends DedosError {
+  public constructor(username: string) {
+    super({
+      code: 'ROBLOX_IDENTITY_NOT_VERIFIED',
+      message: 'Debes validar tu usuario de Roblox antes de confirmar tu trade.',
+      metadata: { username },
+      exposeMessage: true,
+    });
+  }
+}
+
 export class ChannelCreationError extends DedosError {
   public constructor(reason?: string) {
     super({
