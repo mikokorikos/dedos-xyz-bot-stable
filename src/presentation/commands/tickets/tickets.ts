@@ -13,7 +13,7 @@ import {
 } from 'discord.js';
 
 import { OpenSupportTicketUseCase } from '@/application/usecases/tickets/OpenSupportTicketUseCase';
-import { TicketType } from '@/domain/entities/types';
+import { TicketStatus, TicketType } from '@/domain/entities/types';
 import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaTicketRepository } from '@/infrastructure/repositories/PrismaTicketRepository';
 import type { Command } from '@/presentation/commands/types';
@@ -51,8 +51,6 @@ const supportTicketUseCase = new OpenSupportTicketUseCase(ticketRepository, logg
   cooldownMs: env.TICKET_COOLDOWN_MS,
 });
 
-registerSelectMenuHandler(TICKET_PANEL_MENU_ID, async (interaction) => {
-  if (!interaction.guild) {
     await interaction.reply(
       brandReplyOptions({
         embeds: [
@@ -74,6 +72,71 @@ registerSelectMenuHandler(TICKET_PANEL_MENU_ID, async (interaction) => {
       await interaction.showModal(MiddlemanModal.build());
       return;
     }
+  }
+
+  await interaction.reply(
+    brandReplyOptions({
+      embeds: [
+        embedFactory.success({
+          title: 'Ticket cerrado',
+          description: 'Este canal se eliminará en 10 segundos.',
+        }),
+      ],
+      flags: MessageFlags.Ephemeral,
+    }),
+  );
+
+  try {
+    await interaction.channel.send('[LOCK] Ticket cerrado por el staff. El canal se eliminará en 10 segundos.');
+  } catch (error) {
+    logger.warn({ err: error, channelId: interaction.channel.id }, 'No se pudo enviar el aviso de cierre de ticket.');
+  }
+
+  setTimeout(() => {
+    interaction.channel
+      ?.delete('Ticket de soporte archivado por el staff')
+      .catch((error) => logger.warn({ err: error, channelId: interaction.channel?.id }, 'No se pudo eliminar el canal.'));
+  }, 10_000);
+
+  logger.info(
+    { channelId: interaction.channel.id, actorId: interaction.user.id, ticketId: ticket?.id },
+    'Ticket de soporte cerrado manualmente.',
+  );
+});
+
+registerButtonHandler(
+  TICKET_OPEN_BUTTON_PREFIX,
+  async (interaction) => {
+  if (!interaction.guild) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'Accion no disponible',
+            description: 'Este botón solo puede utilizarse dentro de un servidor de Discord.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  const option = getShopOptionByButton(interaction.customId);
+  if (!option) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Opción no disponible',
+            description: 'El servicio seleccionado ya no está activo.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
 
     const option = selection.option;
     if (!option) {
@@ -262,11 +325,12 @@ registerButtonHandler(TICKET_CLOSE_BUTTON_ID, async (interaction) => {
               description: 'Intenta ejecutar el comando de cierre manualmente.',
             }),
           ],
-        flags: MessageFlags.Ephemeral,
       }),
     );
   }
-});
+  },
+  { match: 'prefix' },
+);
 
 registerButtonHandler(
   TICKET_OPEN_BUTTON_PREFIX,
