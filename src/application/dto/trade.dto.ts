@@ -32,3 +32,11 @@ export const ConfirmTradeSchema = z.object({
 });
 
 export type ConfirmTradeDTO = z.infer<typeof ConfirmTradeSchema>;
+
+export const DeleteTradeDataSchema = z.object({
+  ticketId: z.number().int().positive('Invalid ticket identifier'),
+  actorId: SnowflakeSchema,
+  targetUserId: SnowflakeSchema.optional(),
+});
+
+export type DeleteTradeDataDTO = z.infer<typeof DeleteTradeDataSchema>;
