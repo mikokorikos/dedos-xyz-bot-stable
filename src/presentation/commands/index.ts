@@ -16,7 +16,7 @@ import { middlemanCommand } from '@/presentation/commands/middleman/middleman';
 import { middlemanDirectoryCommand } from '@/presentation/commands/middleman/mm';
 import { tradeCommand } from '@/presentation/commands/middleman/trade';
 import { statsCommand } from '@/presentation/commands/stats/stats';
-import { ticketsPanelCommand } from '@/presentation/commands/tickets/tickets';
+import { ticketCloseCommand, ticketsPanelCommand } from '@/presentation/commands/tickets/tickets';
 import type { Command } from '@/presentation/commands/types';
 import { unwarnCommand } from '@/presentation/commands/warns/unwarn';
 import { verbalWarnCommand } from '@/presentation/commands/warns/verbal-warn';
@@ -30,6 +30,7 @@ const commands: Command[] = [
   middlemanDirectoryCommand,
   tradeCommand,
   statsCommand,
+  ticketCloseCommand,
   ticketsPanelCommand,
   unwarnCommand,
   verbalWarnCommand,
