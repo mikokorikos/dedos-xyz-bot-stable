@@ -5,7 +5,7 @@
 import {
   ChannelType,
   type ChatInputCommandInteraction,
-  type GuildMember,
+  GuildMember,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -575,8 +575,8 @@ export const ticketCloseCommand: Command = {
       }
 
       let member: GuildMember | null = null;
-      if (message.member && 'roles' in message.member) {
-        member = message.member as GuildMember;
+      if (message.member instanceof GuildMember) {
+        member = message.member;
       } else {
         const guild = message.guild;
         if (!guild) {
