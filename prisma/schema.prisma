@@ -200,6 +200,20 @@ model MiddlemanReview {
   @@map("mm_reviews")
 }
 
+model StaffAmnesty {
+  id           Int      @id @default(autoincrement())
+  guildId      BigInt?  @map("guild_id")
+  moderatorId  BigInt   @map("moderator_id")
+  userId       BigInt   @map("user_id")
+  action       String   @db.VarChar(32)
+  reason       String?  @db.Text
+  reference    String?  @db.VarChar(128)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([guildId, createdAt(sort: Desc)])
+  @@map("staff_amnesties")
+}
+
 model MiddlemanTradeFinalization {
   ticketId    Int      @map("ticket_id")
   userId      BigInt   @map("user_id")

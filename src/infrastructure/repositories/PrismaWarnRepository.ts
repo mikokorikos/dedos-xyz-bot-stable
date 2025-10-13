@@ -50,8 +50,30 @@ export class PrismaWarnRepository implements IWarnRepository {
     return mapToDomain(warn);
   }
 
-  public async remove(id: number): Promise<void> {
+  public async remove(id: number): Promise<Warn | null> {
+    const warn = await this.prisma.warn.findUnique({ where: { id } });
+    if (!warn) {
+      return null;
+    }
+
     await this.prisma.warn.delete({ where: { id } });
+
+    return mapToDomain(warn);
+  }
+
+  public async removeLatestByUser(userId: bigint): Promise<Warn | null> {
+    const warn = await this.prisma.warn.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!warn) {
+      return null;
+    }
+
+    await this.prisma.warn.delete({ where: { id: warn.id } });
+
+    return mapToDomain(warn);
   }
 
   public async listByUser(userId: bigint): Promise<readonly Warn[]> {

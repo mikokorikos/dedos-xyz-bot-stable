@@ -19,8 +19,21 @@ const METRICS: ReadonlyArray<{ label: string; extractor: StatExtractor; emphasis
     emphasis: true,
   },
   {
+    label: 'Vouches confirmados',
+    extractor: (stats) => stats.vouchCount.toString(),
+    emphasis: true,
+  },
+  {
     label: 'Ultimo trade',
     extractor: (stats) => formatDate(stats.lastTradeAt ?? null),
+  },
+  {
+    label: 'Warns activos',
+    extractor: (stats) => stats.warnCount.toString(),
+  },
+  {
+    label: 'Ultimo warn',
+    extractor: (stats) => formatDate(stats.lastWarnAt ?? null),
   },
   {
     label: 'Socio frecuente',
