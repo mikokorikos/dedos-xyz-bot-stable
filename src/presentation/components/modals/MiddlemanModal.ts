@@ -12,7 +12,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 
-import type OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import type { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { env } from '@/shared/config/env';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';

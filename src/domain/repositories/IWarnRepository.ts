@@ -21,6 +21,7 @@ export interface WarnSummary {
 export interface IWarnRepository extends Transactional<IWarnRepository> {
   create(data: CreateWarnData): Promise<Warn>;
   listByUser(userId: bigint): Promise<readonly Warn[]>;
-  remove(id: number): Promise<void>;
+  remove(id: number): Promise<Warn | null>;
+  removeLatestByUser(userId: bigint): Promise<Warn | null>;
   getSummary(userId: bigint): Promise<WarnSummary>;
 }

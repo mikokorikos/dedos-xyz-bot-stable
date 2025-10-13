@@ -47,10 +47,7 @@ const LayoutSchema = z.enum(['compact', 'standard', 'expanded']);
 const PatternSchema = z.enum(['none', 'grid', 'waves', 'circuit', 'mesh']);
 const StarStyleSchema = z.enum(['sharp', 'rounded']);
 const FrameStyleSchema = z.enum(['rounded', 'cut']);
-const MediaTypeSchema = z
-  .enum(['image', 'gif'])
-  .default('image')
-  .transform(() => 'image' as const);
+const MediaTypeSchema = z.enum(['image', 'gif']).default('image');
 const MediaFitSchema = z.enum(['cover', 'contain', 'fill']);
 const SideMediaPositionSchema = z.enum(['left', 'right']);
 const SideMediaFitSchema = z.enum(['contain', 'cover']);
@@ -139,7 +136,7 @@ export interface MiddlemanCardChip {
 }
 
 export interface MiddlemanCardBackground {
-  readonly type: 'image';
+  readonly type: 'image' | 'gif';
   readonly url: string;
   readonly fit: z.infer<typeof MediaFitSchema>;
   readonly position: string;
@@ -156,7 +153,7 @@ export interface MiddlemanCardBorder {
 }
 
 export interface MiddlemanCardSideMedia {
-  readonly type: 'image';
+  readonly type: 'image' | 'gif';
   readonly url: string;
   readonly width: number;
   readonly fit: z.infer<typeof SideMediaFitSchema>;

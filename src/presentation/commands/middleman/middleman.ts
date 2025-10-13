@@ -21,7 +21,7 @@ import { ClaimTradeUseCase } from '@/application/usecases/middleman/ClaimTradeUs
 import { CloseTradeUseCase } from '@/application/usecases/middleman/CloseTradeUseCase';
 import { ConfirmFinalizationUseCase } from '@/application/usecases/middleman/ConfirmFinalizationUseCase';
 import { ConfirmTradeUseCase } from '@/application/usecases/middleman/ConfirmTradeUseCase';
-import OpenMiddlemanChannelUseCase from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
+import { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { RequestTradeClosureUseCase } from '@/application/usecases/middleman/RequestTradeClosureUseCase';
 import { RevokeFinalizationUseCase } from '@/application/usecases/middleman/RevokeFinalizationUseCase';
 import { SubmitReviewUseCase } from '@/application/usecases/middleman/SubmitReviewUseCase';
@@ -151,21 +151,6 @@ const middlemanSlashCommand = new SlashCommandBuilder()
   .setName('middleman')
   .setDescription('Publica el panel para abrir tickets de middleman')
   .setDMPermission(false);
-
-const tradeSlashCommand = new SlashCommandBuilder()
-  .setName('trade')
-  .setDescription('Acciones para administrar un trade con middleman')
-  .setDMPermission(false)
-  .addSubcommand((sub) =>
-    sub
-      .setName('finalize')
-      .setDescription('Solicita las confirmaciones finales de los traders'),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName('close')
-      .setDescription('Cierra el trade cuando todos confirmaron la finalizacion'),
-  );
 
 export const middlemanCommand: Command = {
   data: middlemanSlashCommand,
@@ -468,7 +453,9 @@ registerModalHandler(TradeModal.CUSTOM_ID, async (interaction) => {
 registerFinalizationConfirmButton(confirmFinalizationUseCase, ticketRepo);
 registerFinalizationCancelButton(revokeFinalizationUseCase, ticketRepo);
 
-registerButtonHandler(REVIEW_BUTTON_CUSTOM_ID, async (interaction) => {
+registerButtonHandler(
+  REVIEW_BUTTON_CUSTOM_ID,
+  async (interaction) => {
   const cachedInvite = reviewInviteStore.get(interaction.message.id);
   const buttonMetadata = parseReviewButtonCustomId(interaction.customId);
 
@@ -674,7 +661,9 @@ registerButtonHandler(REVIEW_BUTTON_CUSTOM_ID, async (interaction) => {
   });
 
   await interaction.showModal(ReviewModal.build(modalCustomId));
-});
+  },
+  { match: 'prefix' },
+);
 
 registerButtonHandler(TRADE_DATA_BUTTON_ID, async (interaction) => {
   if (!interaction.channel || interaction.channel.type !== ChannelType.GuildText) {

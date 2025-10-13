@@ -93,6 +93,44 @@ export const EnvSchema = z.object({
     .string()
     .regex(/^\d{17,20}$/u, 'ADMIN_ROLE_ID debe ser un snowflake de Discord')
     .optional(),
+  VERIFIED_ROLE_ID: z
+    .string()
+    .regex(/^\d{17,20}$/u, 'VERIFIED_ROLE_ID debe ser un snowflake de Discord')
+    .optional(),
+  VERIFICATION_CHANNEL_ID: z
+    .string()
+    .regex(/^\d{17,20}$/u, 'VERIFICATION_CHANNEL_ID debe ser un snowflake de Discord')
+    .optional(),
+  VERIFICATION_MESSAGE_ID: emptyToUndefined(z.string().regex(/^\d{17,20}$/u, 'VERIFICATION_MESSAGE_ID debe ser un snowflake de Discord')),
+  VERIFY_BUTTON_CUSTOM_ID: z
+    .string()
+    .min(3, 'VERIFY_BUTTON_CUSTOM_ID debe tener al menos 3 caracteres')
+    .max(80, 'VERIFY_BUTTON_CUSTOM_ID debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:verify:button'),
+  HELP_MENU_CUSTOM_ID: z
+    .string()
+    .min(3, 'HELP_MENU_CUSTOM_ID debe tener al menos 3 caracteres')
+    .max(80, 'HELP_MENU_CUSTOM_ID debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:help:menu'),
+  COMMUNITY_URL: z
+    .string()
+    .url('COMMUNITY_URL debe ser una URL valida')
+    .optional()
+    .default('https://discord.gg/dedos'),
+  HELP_CENTER_URL: optionalUrl,
+  INVITE_CHANNEL_ID: z
+    .string()
+    .regex(/^\d{17,20}$/u, 'INVITE_CHANNEL_ID debe ser un snowflake de Discord')
+    .optional(),
+  WELCOME_GIF_PATH: emptyToUndefined(z.string()),
+  WELCOME_RATE_MS: z.coerce.number().int().min(250).default(1_000),
+  WELCOME_CONCURRENCY: z.coerce.number().int().min(1).max(5).default(1),
+  WELCOME_MAX_QUEUE: z.coerce.number().int().min(1).max(500).default(100),
+  FX_REFRESH_INTERVAL_MS: z.coerce.number().int().min(60_000).default(21_600_000),
+  MXN_USD_RATE: z.coerce.number().nonnegative().optional(),
+  MXN_USD_DISABLE_FETCH: booleanLike.default(false),
   MIDDLEMAN_CATEGORY_ID: z
     .string()
     .regex(/^\d{17,20}$/u, 'MIDDLEMAN_CATEGORY_ID debe ser un snowflake de Discord')
@@ -110,7 +148,35 @@ export const EnvSchema = z.object({
     .string()
     .regex(/^\d{17,20}$/u, 'TICKET_CATEGORY_ID debe ser un snowflake de Discord')
     .optional(),
-
+  TICKET_PANEL_CHANNEL_ID: z
+    .string()
+    .regex(/^\d{17,20}$/u, 'TICKET_PANEL_CHANNEL_ID debe ser un snowflake de Discord')
+    .optional(),
+  TICKET_SELECT_MENU_ID: z
+    .string()
+    .min(3, 'TICKET_SELECT_MENU_ID debe tener al menos 3 caracteres')
+    .max(80, 'TICKET_SELECT_MENU_ID debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:ticket:menu'),
+  TICKET_OPEN_BUTTON_PREFIX: z
+    .string()
+    .min(3, 'TICKET_OPEN_BUTTON_PREFIX debe tener al menos 3 caracteres')
+    .max(80, 'TICKET_OPEN_BUTTON_PREFIX debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:ticket:open:'),
+  TICKET_CLOSE_BUTTON_ID: z
+    .string()
+    .min(3, 'TICKET_CLOSE_BUTTON_ID debe tener al menos 3 caracteres')
+    .max(80, 'TICKET_CLOSE_BUTTON_ID debe tener maximo 80 caracteres')
+    .optional()
+    .default('dedos:ticket:close'),
+  TICKET_BRAND_ICON_URL: z
+    .string()
+    .url('TICKET_BRAND_ICON_URL debe ser una URL valida')
+    .optional()
+    .default(
+      'https://cdn.discordapp.com/attachments/1412699909949358151/1417272988801175593/dedosbot_avatar.jpg',
+    ),
   TICKET_STAFF_ROLE_IDS: commaSeparatedSnowflakes.default([]),
 
   TICKET_MAX_PER_USER: z.coerce.number().int().min(1).max(10).default(3),

@@ -24,6 +24,9 @@ const mapToDomain = (stats: MemberTradeStatsModel): MemberTradeStats =>
     stats.preferredRobloxIdentity?.robloxUserId ?? null,
     stats.partnerTag ?? null,
     stats.updatedAt,
+    0,
+    0,
+    null,
   );
 
 export class PrismaMemberStatsRepository implements IMemberStatsRepository {

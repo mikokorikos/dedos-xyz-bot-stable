@@ -2,16 +2,16 @@
 // RUTA: src/presentation/commands/tickets/ticket.ts
 // ============================================================================
 
-import type { TextChannel } from 'discord.js';
 import {
   ActionRowBuilder,
-  ChannelType,
   ComponentType,
   GuildMember,
   ModalBuilder,
+  PermissionFlagsBits,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  TextChannel,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
@@ -23,9 +23,12 @@ import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaTicketRepository } from '@/infrastructure/repositories/PrismaTicketRepository';
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { createSupportTicketCloser } from '@/presentation/tickets/SupportTicketCloser';
 import { COOLDOWNS, PERMISSIONS } from '@/shared/config/constants';
+import { env } from '@/shared/config/env';
 import { ChannelCreationError } from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
+import { brandMessageOptions } from '@/shared/utils/branding';
 import { cooldownManager } from '@/shared/utils/cooldown-manager';
 import { mentionUser } from '@/shared/utils/discord.utils';
 import { hasPermissions } from '@/shared/utils/permissions';
@@ -33,6 +36,10 @@ import { hasPermissions } from '@/shared/utils/permissions';
 const ticketRepository = new PrismaTicketRepository(prisma);
 const createTicketUseCase = new CreateGeneralTicketUseCase(ticketRepository, logger, embedFactory);
 const closeTicketUseCase = new CloseGeneralTicketUseCase(ticketRepository, logger, embedFactory);
+const supportTicketCloser = createSupportTicketCloser({ ticketRepository, logger });
+
+const SUPPORT_CLOSE_DELAY_MS = 10_000;
+const SUPPORT_DELETE_DELAY_MS = 5_000;
 
 type GeneralTicketType = Exclude<TicketType, TicketType.MM>;
 
@@ -43,6 +50,30 @@ const ticketOptions: Array<{ label: string; value: GeneralTicketType; descriptio
   { label: 'Nitro', value: TicketType.NITRO, description: 'Gestiona ventas o compras de Nitro.' },
   { label: 'Decoración', value: TicketType.DECOR, description: 'Pide asistencia de diseño o decoraciones.' },
 ];
+
+const hasTicketStaffRole = (member: GuildMember | null): boolean => {
+  if (!member) {
+    return false;
+  }
+
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) {
+    return true;
+  }
+
+  const staffRoles = env.TICKET_STAFF_ROLE_IDS;
+  return member.roles.cache.some((role) => staffRoles.includes(role.id));
+};
+
+const scheduleLockNotice = async (channel: TextChannel, delayMs: number): Promise<void> => {
+  try {
+    const seconds = Math.max(1, Math.round(delayMs / 1000));
+    await channel.send(
+      `[LOCK] Ticket cerrado por el staff. El canal se eliminará en ${seconds} segundo${seconds === 1 ? '' : 's'}.`,
+    );
+  } catch (error) {
+    logger.warn({ err: error, channelId: channel.id }, 'No se pudo enviar el aviso de cierre de ticket.');
+  }
+};
 
 const buildTypeSelect = () =>
   new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -88,11 +119,209 @@ export const ticketCommand: Command = {
           option
             .setName('ticket_id')
             .setDescription('Identificador del ticket a cerrar')
-            .setRequired(true),
+            .setRequired(false),
+        ),
+  )
+    .addSubcommand((sub) =>
+      sub
+        .setName('delete')
+        .setDescription('Cierra y elimina el ticket actual')
+        .addIntegerOption((option) =>
+          option
+            .setName('ticket_id')
+            .setDescription('Identificador del ticket a eliminar')
+            .setRequired(false),
         ),
     ),
   category: 'Tickets',
-  examples: ['/ticket open', '/ticket close ticket_id:12'],
+  examples: ['/ticket open', '/ticket close', '/ticket delete', `${env.COMMAND_PREFIX}ticket close`],
+  prefix: {
+    name: 'ticket',
+    async execute(message, args) {
+      const [rawSubcommand, rawTicketId] = args;
+      const subcommand = rawSubcommand?.toLowerCase();
+
+      if (!subcommand || subcommand === 'help') {
+        const prefix = env.COMMAND_PREFIX;
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.info({
+                title: 'Comandos de ticket disponibles',
+                description: [
+                  `• \`${prefix}ticket close\` — Cierra el ticket actual y elimina el canal en unos segundos.`,
+                  `• \`${prefix}ticket delete\` — Elimina el canal del ticket casi de inmediato.`,
+                  '• Usa `/ticket open` para crear un ticket general con formulario interactivo.',
+                ].join('\n'),
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (!message.inGuild() || !(message.channel instanceof TextChannel)) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.error({
+                title: 'Canal no válido',
+                description: 'Este comando solo puede usarse dentro de un canal de ticket.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const textChannel = message.channel;
+      const member = message.member instanceof GuildMember ? message.member : null;
+
+      if (!hasTicketStaffRole(member)) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Acceso denegado',
+                description: 'Solo el staff de soporte puede cerrar tickets manualmente.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (subcommand !== 'close' && subcommand !== 'delete') {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.warning({
+                title: 'Subcomando desconocido',
+                description: 'Usa `close` o `delete` para administrar el ticket.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const deleteDelay = subcommand === 'delete' ? SUPPORT_DELETE_DELAY_MS : SUPPORT_CLOSE_DELAY_MS;
+      const deleteReason =
+        subcommand === 'delete'
+          ? 'Ticket de soporte eliminado mediante comando de texto'
+          : 'Ticket de soporte cerrado mediante comando de texto';
+
+      const ticketIdFilter = rawTicketId ? Number.parseInt(rawTicketId, 10) : null;
+
+      if (rawTicketId && Number.isNaN(ticketIdFilter)) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.error({
+                title: 'Identificador inválido',
+                description: 'El ID proporcionado debe ser un número entero.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      let channelTicketId: number | null = null;
+
+      if (ticketIdFilter !== null) {
+        try {
+          const ticket = await ticketRepository.findByChannelId(BigInt(textChannel.id));
+          channelTicketId = ticket?.id ?? null;
+        } catch (error) {
+          logger.error({ err: error, channelId: textChannel.id }, 'No se pudo validar el ticket del canal.');
+        }
+
+        if (channelTicketId === null || channelTicketId !== ticketIdFilter) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [
+                embedFactory.warning({
+                  title: 'Ticket incompatible',
+                  description: 'El ID proporcionado no coincide con el ticket de este canal.',
+                }),
+              ],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+          return;
+        }
+      }
+
+      try {
+        const result = await supportTicketCloser(textChannel, {
+          executorId: message.author.id,
+          deleteDelayMs: deleteDelay,
+          deleteReason,
+        });
+
+        if (result.status === 'not-ticket') {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [
+                embedFactory.warning({
+                  title: 'Ticket no registrado',
+                  description:
+                    'No se encontró un ticket asociado a este canal, pero se programó la eliminación del mismo.',
+                }),
+              ],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+          return;
+        }
+
+        const ticketLabel = result.ticketId ? `#${result.ticketId}` : 'actual';
+        const seconds = Math.max(1, Math.round(deleteDelay / 1000));
+        const description =
+          result.status === 'already-closed'
+            ? `El ticket ${ticketLabel} ya estaba cerrado. El canal se eliminará en ${seconds} segundo${
+                seconds === 1 ? '' : 's'
+              }.`
+            : `El ticket ${ticketLabel} se cerró correctamente. El canal se eliminará en ${seconds} segundo${
+                seconds === 1 ? '' : 's'
+              }.`;
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.success({
+                title: subcommand === 'delete' ? 'Ticket eliminado' : 'Ticket cerrado',
+                description,
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+
+        await scheduleLockNotice(textChannel, deleteDelay);
+      } catch (error) {
+        logger.error({ err: error, channelId: textChannel.id }, 'No se pudo cerrar el ticket por comando de texto.');
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [
+              embedFactory.error({
+                title: 'Fallo al cerrar el ticket',
+                description: 'Intenta nuevamente o utiliza el botón del panel.',
+              }),
+            ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+      }
+    },
+  },
   async execute(interaction) {
     const subcommand = interaction.options.getSubcommand();
 
@@ -214,7 +443,7 @@ export const ticketCommand: Command = {
       return;
     }
 
-    if (subcommand === 'close') {
+    if (subcommand === 'close' || subcommand === 'delete') {
       if (!interaction.guild) {
         await interaction.reply({
           embeds: [
@@ -228,15 +457,16 @@ export const ticketCommand: Command = {
         return;
       }
 
-      const ticketId = interaction.options.getInteger('ticket_id', true);
+      const isDelete = subcommand === 'delete';
       const channel = interaction.channel;
+      const ticketIdOption = interaction.options.getInteger('ticket_id');
 
-      if (!channel || channel.isDMBased() || !channel.isTextBased() || channel.type !== ChannelType.GuildText) {
+      if (!(channel instanceof TextChannel)) {
         await interaction.reply({
           embeds: [
             embedFactory.error({
               title: 'Canal no válido',
-              description: 'Este comando debe ejecutarse dentro del canal del ticket.',
+              description: 'Ejecuta el comando dentro del canal del ticket.',
             }),
           ],
           ephemeral: true,
@@ -244,29 +474,153 @@ export const ticketCommand: Command = {
         return;
       }
 
+      const textChannel = channel;
       const guildMember =
         interaction.member instanceof GuildMember
           ? interaction.member
           : await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 
+      const deleteDelay = isDelete ? SUPPORT_DELETE_DELAY_MS : SUPPORT_CLOSE_DELAY_MS;
+      const deleteReason = isDelete
+        ? 'Ticket de soporte eliminado mediante comando slash'
+        : 'Ticket de soporte cerrado mediante comando slash';
+
+      let channelTicketId: number | null = null;
+
+      try {
+        const ticket = await ticketRepository.findByChannelId(BigInt(textChannel.id));
+        channelTicketId = ticket?.id ?? null;
+      } catch (error) {
+        logger.error({ err: error, channelId: textChannel.id }, 'No se pudo validar el ticket del canal para el cierre.');
+      }
+
+      if (channelTicketId !== null && (ticketIdOption === null || ticketIdOption === channelTicketId)) {
+        if (!hasTicketStaffRole(guildMember ?? null)) {
+          await interaction.reply({
+            embeds: [
+              embedFactory.warning({
+                title: 'Acceso denegado',
+                description: 'Solo el staff autorizado puede cerrar tickets de soporte.',
+              }),
+            ],
+            ephemeral: true,
+          });
+          return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+          const result = await supportTicketCloser(textChannel, {
+            executorId: interaction.user.id,
+            deleteDelayMs: deleteDelay,
+            deleteReason,
+          });
+
+          if (result.status === 'not-ticket') {
+            await interaction.editReply({
+              embeds: [
+                embedFactory.warning({
+                  title: 'Ticket no registrado',
+                  description:
+                    'No se encontró un ticket asociado a este canal, pero se programó la eliminación del mismo.',
+                }),
+              ],
+            });
+            return;
+          }
+
+          const ticketLabel = result.ticketId ? `#${result.ticketId}` : 'actual';
+          const seconds = Math.max(1, Math.round(deleteDelay / 1000));
+          const description =
+            result.status === 'already-closed'
+              ? `El ticket ${ticketLabel} ya estaba cerrado. El canal se eliminará en ${seconds} segundo${
+                  seconds === 1 ? '' : 's'
+                }.`
+              : `El ticket ${ticketLabel} se cerró correctamente. El canal se eliminará en ${seconds} segundo${
+                  seconds === 1 ? '' : 's'
+                }.`;
+
+          await interaction.editReply({
+            embeds: [
+              embedFactory.success({
+                title: isDelete ? 'Ticket eliminado' : 'Ticket cerrado',
+                description,
+              }),
+            ],
+          });
+
+          await scheduleLockNotice(textChannel, deleteDelay);
+        } catch (error) {
+          logger.error({ err: error, channelId: textChannel.id }, 'No se pudo cerrar el ticket desde el comando slash.');
+          await interaction.editReply({
+            embeds: [
+              embedFactory.error({
+                title: 'Fallo al cerrar el ticket',
+                description: 'Intenta nuevamente o utiliza el botón del panel.',
+              }),
+            ],
+          });
+        }
+
+        return;
+      }
+
+      if (ticketIdOption === null) {
+        await interaction.reply({
+          embeds: [
+            embedFactory.warning({
+              title: 'Ticket no identificado',
+              description: 'Proporciona el ID del ticket o ejecuta el comando dentro del canal correspondiente.',
+            }),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
       const executorIsStaff = hasPermissions(guildMember, PERMISSIONS.staff);
 
       await interaction.deferReply({ ephemeral: true });
 
-      await closeTicketUseCase.execute(
-        { ticketId, executorId: interaction.user.id },
-        channel as TextChannel,
-        { executorIsStaff },
-      );
+      try {
+        await closeTicketUseCase.execute(
+          { ticketId: ticketIdOption, executorId: interaction.user.id },
+          textChannel,
+          { executorIsStaff },
+        );
 
-      await interaction.editReply({
-        embeds: [
-          embedFactory.success({
-            title: 'Ticket cerrado',
-            description: `El ticket #${ticketId} fue cerrado por ${mentionUser(interaction.user.id)}.`,
-          }),
-        ],
-      });
+        await interaction.editReply({
+          embeds: [
+            embedFactory.success({
+              title: 'Ticket cerrado',
+              description: `El ticket #${ticketIdOption} fue cerrado por ${mentionUser(interaction.user.id)}.`,
+            }),
+          ],
+        });
+
+        if (isDelete) {
+          await scheduleLockNotice(textChannel, deleteDelay);
+          setTimeout(() => {
+            textChannel
+              .delete('Ticket general eliminado mediante comando slash')
+              .catch((error) =>
+                logger.warn({ err: error, channelId: textChannel.id }, 'No se pudo eliminar el canal tras cerrar el ticket.'),
+              );
+          }, deleteDelay);
+        }
+      } catch (error) {
+        logger.error({ err: error, channelId: textChannel.id }, 'Fallo al cerrar el ticket general desde el comando slash.');
+        await interaction.editReply({
+          embeds: [
+            embedFactory.error({
+              title: 'No se pudo cerrar el ticket',
+              description: 'Verifica tus permisos e inténtalo de nuevo.',
+            }),
+          ],
+        });
+      }
+
       return;
     }
   },

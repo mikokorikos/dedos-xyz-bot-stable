@@ -158,6 +158,18 @@ export class ChannelCleanupError extends DedosError {
   }
 }
 
+export class ChannelDeletionError extends DedosError {
+  public constructor(channelId: string, cause?: unknown) {
+    super({
+      code: 'CHANNEL_DELETION_FAILED',
+      message: 'No se pudo eliminar el canal del trade. Verifica tus permisos e inténtalo de nuevo.',
+      metadata: { channelId },
+      exposeMessage: true,
+      cause,
+    });
+  }
+}
+
 export class TicketClosedError extends DedosError {
   public constructor(ticketId: number) {
     super({
