@@ -9,7 +9,8 @@ import { TicketStatus, TicketType } from '@/domain/entities/types';
 import type { ITicketRepository } from '@/domain/repositories/ITicketRepository';
 import type { ITradeRepository } from '@/domain/repositories/ITradeRepository';
 import { TradeStatus } from '@/domain/value-objects/TradeStatus';
-import { UnauthorizedActionError } from '@/shared/errors/domain.errors';
+import { RobloxIdentityNotVerifiedError, UnauthorizedActionError } from '@/shared/errors/domain.errors';
+import type { RobloxUserRecord, RobloxUsersService } from '@/shared/services/RobloxUsersService';
 
 class ConfirmTicketRepository implements ITicketRepository {
   public ticket: Ticket | null = null;
@@ -87,6 +88,14 @@ class ConfirmTradeRepository implements ITradeRepository {
   public async delete(): Promise<void> {}
 }
 
+class MockRobloxUsersService implements RobloxUsersService {
+  public responses = new Map<string, RobloxUserRecord | null>();
+
+  public async lookupByUsername(username: string): Promise<RobloxUserRecord | null> {
+    return this.responses.get(username) ?? null;
+  }
+}
+
 const createLogger = (): Logger =>
   ({
     info: vi.fn(),
@@ -105,12 +114,14 @@ describe('ConfirmTradeUseCase', () => {
   const OTHER_ID = '333333333333333333';
   let ticketRepo: ConfirmTicketRepository;
   let tradeRepo: ConfirmTradeRepository;
+  let robloxUsers: MockRobloxUsersService;
   let useCase: ConfirmTradeUseCase;
 
   beforeEach(() => {
     ticketRepo = new ConfirmTicketRepository();
     tradeRepo = new ConfirmTradeRepository();
-    useCase = new ConfirmTradeUseCase(ticketRepo, tradeRepo, createLogger());
+    robloxUsers = new MockRobloxUsersService();
+    useCase = new ConfirmTradeUseCase(ticketRepo, tradeRepo, robloxUsers, createLogger());
 
     ticketRepo.ticket = new Ticket(1, BigInt(OWNER_ID), BigInt(2), BigInt(PARTNER_ID), TicketType.MM, TicketStatus.OPEN, new Date());
     ticketRepo.participants = new Set([OWNER_ID, PARTNER_ID]);
@@ -118,6 +129,9 @@ describe('ConfirmTradeUseCase', () => {
     const tradeA = new Trade(1, 1, BigInt(OWNER_ID), 'TraderA', null, null, TradeStatus.PENDING, false, [], new Date());
     const tradeB = new Trade(2, 1, BigInt(PARTNER_ID), 'TraderB', null, null, TradeStatus.PENDING, false, [], new Date());
     tradeRepo.trades = [tradeA, tradeB];
+
+    robloxUsers.responses.set('TraderA', { id: BigInt('4444444444'), username: 'TraderA' });
+    robloxUsers.responses.set('TraderB', { id: BigInt('5555555555'), username: 'TraderB' });
   });
 
   it('confirms ticket when both trades are confirmed', async () => {
@@ -127,13 +141,23 @@ describe('ConfirmTradeUseCase', () => {
 
     expect(result.ticketConfirmed).toBe(false);
     expect(tradeRepo.trades[0].confirmed).toBe(true);
+    expect(tradeRepo.trades[0].robloxUserId).toBe(BigInt('4444444444'));
     expect(ticketRepo.ticket?.status).toBe(TicketStatus.OPEN);
 
     const secondResult = await useCase.execute({ ticketId: 1, userId: PARTNER_ID });
 
     expect(secondResult.ticketConfirmed).toBe(true);
     expect(ticketRepo.ticket?.status).toBe(TicketStatus.CONFIRMED);
+    expect(tradeRepo.trades[1].robloxUserId).toBe(BigInt('5555555555'));
     expect(ticketRepo.updated).toBe(true);
+  });
+
+  it('throws when roblox identity cannot be verified', async () => {
+    robloxUsers.responses.set('TraderA', null);
+
+    const dto: ConfirmTradeDTO = { ticketId: 1, userId: OWNER_ID };
+
+    await expect(useCase.execute(dto)).rejects.toThrow(RobloxIdentityNotVerifiedError);
   });
 
   it('throws when user is not participant', async () => {

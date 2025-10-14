@@ -4,16 +4,18 @@
 
 import type { Logger } from 'pino';
 
-import { type ConfirmTradeDTO,ConfirmTradeSchema } from '@/application/dto/trade.dto';
+import { type ConfirmTradeDTO, ConfirmTradeSchema } from '@/application/dto/trade.dto';
 import type { ITicketRepository } from '@/domain/repositories/ITicketRepository';
 import type { ITradeRepository } from '@/domain/repositories/ITradeRepository';
 import {
+  RobloxIdentityNotVerifiedError,
   TicketClosedError,
   TicketNotFoundError,
   TradeAlreadyConfirmedError,
   TradeDataNotFoundError,
   UnauthorizedActionError,
 } from '@/shared/errors/domain.errors';
+import type { RobloxUsersService } from '@/shared/services/RobloxUsersService';
 
 interface ConfirmTradeResult {
   readonly ticketConfirmed: boolean;
@@ -23,6 +25,7 @@ export class ConfirmTradeUseCase {
   public constructor(
     private readonly ticketRepo: ITicketRepository,
     private readonly tradeRepo: ITradeRepository,
+    private readonly robloxUsers: RobloxUsersService,
     private readonly logger: Logger,
   ) {}
 
@@ -55,6 +58,20 @@ export class ConfirmTradeUseCase {
 
     if (trade.confirmed) {
       throw new TradeAlreadyConfirmedError();
+    }
+
+    if (!trade.robloxUserId) {
+      const resolvedIdentity = await this.robloxUsers.lookupByUsername(trade.robloxUsername);
+
+      if (!resolvedIdentity) {
+        this.logger.warn(
+          { ticketId: ticket.id, userId: payload.userId, robloxUsername: trade.robloxUsername },
+          'Intento de confirmacion sin usuario de Roblox verificado.',
+        );
+        throw new RobloxIdentityNotVerifiedError(trade.robloxUsername);
+      }
+
+      trade.updateRobloxProfile({ username: resolvedIdentity.username, userId: resolvedIdentity.id });
     }
 
     trade.confirm();
