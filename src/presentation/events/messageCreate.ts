@@ -10,6 +10,29 @@ import type { EventDescriptor } from '@/presentation/events/types';
 import { env } from '@/shared/config/env';
 import { recordDebugEvent, runWithDebugSession } from '@/shared/debug/verbose-debugger';
 import { logger } from '@/shared/logger/pino';
+import { containsRobuxLikeTerms, containsRobuxLikeTermsInCollection } from '@/shared/utils/robuxDetection';
+
+const TRADE_CHANNEL_ID = '1413664770028208199';
+
+const ROBUX_WARNING_EMBED = {
+  title: 'ADVERTENCIA DE ESTAFA',
+  description:
+    'Recuerda que si te tradean algo por robux puedes ser estafado por el metodo de rembolso, ten mucho cuidado, no trades por robux con alguien que no sea de confianza. Recomendaciones:\n<a:51047animatedarrowwhite:1417021879411281992> ESTO NO SIGNIFICA QUE TE VAYAN A ESTAFAR PERO ES PARA QUE TOMES TUS PRECAUCIONES PORQUE NINGUN MIDLEMAN PUEDE SALVARTE DE ESTAS ESTAFAS',
+  color: 0x7406bf,
+  footer: {
+    text: 'dedos.xyz',
+    icon_url:
+      'https://cdn.discordapp.com/attachments/1412699909949358151/1428573126576574585/image.png?ex=68f2fde6&is=68f1ac66&hm=30933d8ec4fe981a86fb4b05b0dd79d14a04f49fd9a69bc2e7c6282f39fa6d0e&',
+  },
+  author: {
+    name: 'dedos.xyz',
+    icon_url:
+      'https://cdn.discordapp.com/attachments/1412699909949358151/1428573126576574585/image.png?ex=68f2fde6&is=68f1ac66&hm=30933d8ec4fe981a86fb4b05b0dd79d14a04f49fd9a69bc2e7c6282f39fa6d0e&',
+  },
+  image: {
+    url: 'https://message.style/cdn/images/b6b34048e6b8e4f2d6931af81a6935dbeb06d1d1a619dcf353733ab75bbcca8c.gif',
+  },
+} as const;
 
 export const messageCreateEvent: EventDescriptor<typeof Events.MessageCreate> = {
   name: Events.MessageCreate,
@@ -21,6 +44,23 @@ export const messageCreateEvent: EventDescriptor<typeof Events.MessageCreate> = 
 
     if (message.author.bot) {
       return;
+    }
+
+    if (message.channelId === TRADE_CHANNEL_ID) {
+      const embedTexts = message.embeds.flatMap((embed) => [
+        embed.title,
+        embed.description,
+        embed.footer?.text,
+        embed.author?.name,
+        ...(embed.fields?.map((field) => `${field.name}\n${field.value}`) ?? []),
+      ]);
+
+      if (
+        containsRobuxLikeTerms(message.content) ||
+        containsRobuxLikeTermsInCollection(embedTexts)
+      ) {
+        await message.channel.send({ embeds: [ROBUX_WARNING_EMBED] });
+      }
     }
 
     const prefix = env.COMMAND_PREFIX;
