@@ -14,6 +14,7 @@ import {
   TicketNotFoundError,
   UnauthorizedActionError,
 } from '@/shared/errors/domain.errors';
+import type { RobloxUsersService } from '@/shared/services/RobloxUsersService';
 
 const DESCRIPTION_MAX_LENGTH = 240;
 
@@ -27,6 +28,7 @@ export class SubmitTradeDataUseCase {
   public constructor(
     private readonly ticketRepo: ITicketRepository,
     private readonly tradeRepo: ITradeRepository,
+    private readonly robloxUsers: RobloxUsersService,
     private readonly logger: Logger,
   ) {}
 
@@ -55,8 +57,12 @@ export class SubmitTradeDataUseCase {
     const normalizedDescription = payload.offerDescription.trim();
     const item = buildTradeItem(normalizedDescription);
 
+    const resolvedIdentity = await this.robloxUsers.lookupByUsername(payload.robloxUsername);
+    const robloxUsername = resolvedIdentity?.username ?? payload.robloxUsername;
+    const robloxUserId = resolvedIdentity?.id ?? null;
+
     if (existingTrade) {
-      existingTrade.updateRobloxProfile({ username: payload.robloxUsername });
+      existingTrade.updateRobloxProfile({ username: robloxUsername, userId: robloxUserId });
       existingTrade.replaceItems([item]);
       existingTrade.resetConfirmation();
 
@@ -75,7 +81,8 @@ export class SubmitTradeDataUseCase {
     const trade = await this.tradeRepo.create({
       ticketId: ticket.id,
       userId,
-      robloxUsername: payload.robloxUsername,
+      robloxUsername,
+      robloxUserId: robloxUserId ?? undefined,
       items: [item],
     });
 

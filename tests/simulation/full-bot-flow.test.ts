@@ -53,6 +53,7 @@ import { memberCardGenerator } from '@/infrastructure/external/MemberCardGenerat
 import { middlemanCardGenerator } from '@/infrastructure/external/MiddlemanCardGenerator';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
 import { COLORS } from '@/shared/config/constants';
+import type { RobloxUsersService } from '@/shared/services/RobloxUsersService';
 
 interface StepLog {
   readonly index: number;
@@ -936,8 +937,22 @@ describe('Simulación integral del bot', () => {
 
     const openMiddlemanUseCase = new OpenMiddlemanChannelUseCase(ticketRepo, transactions, fakeLogger, embedFactory);
     const claimTradeUseCase = new ClaimTradeUseCase(ticketRepo, middlemanRepo, fakeLogger, embedFactory);
-    const submitTradeDataUseCase = new SubmitTradeDataUseCase(ticketRepo, tradeRepo, fakeLogger);
-    const confirmTradeUseCase = new ConfirmTradeUseCase(ticketRepo, tradeRepo, fakeLogger);
+    const robloxUsersService: RobloxUsersService = {
+      async lookupByUsername(username: string) {
+        const normalized = username.toLowerCase();
+        if (normalized === 'ownerrbx'.toLowerCase()) {
+          return { id: BigInt('4444444444'), username: 'OwnerRBX' };
+        }
+
+        if (normalized === 'partnerrbx'.toLowerCase()) {
+          return { id: BigInt('5555555555'), username: 'PartnerRBX' };
+        }
+
+        return null;
+      },
+    };
+    const submitTradeDataUseCase = new SubmitTradeDataUseCase(ticketRepo, tradeRepo, robloxUsersService, fakeLogger);
+    const confirmTradeUseCase = new ConfirmTradeUseCase(ticketRepo, tradeRepo, robloxUsersService, fakeLogger);
     const requestClosureUseCase = new RequestTradeClosureUseCase(
       ticketRepo,
       finalizationRepo,

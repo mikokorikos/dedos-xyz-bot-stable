@@ -28,6 +28,7 @@ import { SubmitReviewUseCase } from '@/application/usecases/middleman/SubmitRevi
 import { SubmitTradeDataUseCase } from '@/application/usecases/middleman/SubmitTradeDataUseCase';
 import { UpdateCardConfigUseCase } from '@/application/usecases/middleman/UpdateCardConfigUseCase';
 import { prisma } from '@/infrastructure/db/prisma';
+import { RobloxUsersClient } from '@/infrastructure/external/RobloxUsersService';
 import { PrismaMemberStatsRepository } from '@/infrastructure/repositories/PrismaMemberStatsRepository';
 import { PrismaMiddlemanFinalizationRepository } from '@/infrastructure/repositories/PrismaMiddlemanFinalizationRepository';
 import { PrismaMiddlemanRepository } from '@/infrastructure/repositories/PrismaMiddlemanRepository';
@@ -92,6 +93,8 @@ const finalizationRepo = new PrismaMiddlemanFinalizationRepository(prisma);
 
 const reviewRepo = new PrismaReviewRepository(prisma);
 
+const robloxUsers = new RobloxUsersClient(logger);
+
 const openUseCase = new OpenMiddlemanChannelUseCase(ticketRepo, prisma, logger, embedFactory);
 
 const claimUseCase = new ClaimTradeUseCase(ticketRepo, middlemanRepo, logger, embedFactory);
@@ -117,9 +120,9 @@ const submitReviewUseCase = new SubmitReviewUseCase(
 
 const updateCardConfigUseCase = new UpdateCardConfigUseCase(middlemanRepo, logger);
 
-const submitTradeDataUseCase = new SubmitTradeDataUseCase(ticketRepo, tradeRepo, logger);
+const submitTradeDataUseCase = new SubmitTradeDataUseCase(ticketRepo, tradeRepo, robloxUsers, logger);
 
-const confirmTradeUseCase = new ConfirmTradeUseCase(ticketRepo, tradeRepo, logger);
+const confirmTradeUseCase = new ConfirmTradeUseCase(ticketRepo, tradeRepo, robloxUsers, logger);
 
 const confirmFinalizationUseCase = new ConfirmFinalizationUseCase(
   ticketRepo,
