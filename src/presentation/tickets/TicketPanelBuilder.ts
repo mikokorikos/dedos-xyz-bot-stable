@@ -70,80 +70,6 @@ const applyBrand = (embed: EmbedBuilder, options: { includeBanner?: boolean } = 
 
 const formatTicketNumber = (ticketId: number): string => ticketId.toString().padStart(4, '0');
 
-const SHOP_STORE_PETS: Array<{ name: string; mxn: number }> = [
-  { name: ' <:Discobee:1414419895348891689>  Disco Bee', mxn: 80 },
-  { name: ' <:gag_raccon:1417401527714320506> Raccon', mxn: 100 },
-  { name: '<:Kitsune:1414434736880877650>  Kitsune', mxn: 260 },
-  { name: '<:Butterfly:1417027669647949864>  Butterfly', mxn: 35 },
-  { name: '<:DragonFly:1412701832311996499>  Dragonfly', mxn: 20 },
-  { name: '<:Mimic_Octopus:1417027684751507476>  MImic', mxn: 20 },
-];
-
-const SHOP_PET_ROBUX_FIELDS = [
-  {
-    name: ' <:Discobee:1414419895348891689>  Disco Bee',
-    value: '    **500 Robux** <:9073robux:1417021867167846420>',
-    inline: true,
-  },
-  {
-    name: ' <:gag_raccon:1417401527714320506> Raccon',
-    value: '    **700 Robux** <:9073robux:1417021867167846420> ',
-    inline: true,
-  },
-  {
-    name: '<:Kitsune:1414434736880877650>  Kitsune',
-    value: '    **1800 Robux** <:9073robux:1417021867167846420> ',
-    inline: true,
-  },
-  {
-    name: '<:Butterfly:1417027669647949864>  Butterfly',
-    value: '    **300 Robux** <:9073robux:1417021867167846420> ',
-    inline: true,
-  },
-  {
-    name: '<:DragonFly:1412701832311996499>  Dragonfly',
-    value: '     **80 Robux** <:9073robux:1417021867167846420>',
-    inline: true,
-  },
-  {
-    name: '<:Mimic_Octopus:1417027684751507476>  MImic',
-    value:
-      '      **80 Robux** <:9073robux:1417021867167846420> \n Clausulas\nNo compramos ítems relacionados con Steal o Brainrot. Los precios no incluyen el 30% de tax que Roblox <:Roblox:1417027880080375929> descuenta en cada transacción. No realizamos pagos mediante in game gift (no se regalan pases dentro de ningún juego). Por seguridad, en el caso de los Raccoons <:gag_raccon:1417401527714320506> mantenemos un mínimo de 48 horas en nuestro inventario antes de liberar el pago, para evitar la compra de duplicados. **Esto aplica únicamente al Raccoon otras pets si son pago inmediato **<:gag_raccon:1417401527714320506>, ya que es el pet más duplicado del juego.',
-    inline: true,
-  },
-];
-
-const buildSellPetsEmbed = (): EmbedBuilder => {
-  const embed = new EmbedBuilder()
-    .setTitle('PETS QUE COMPRAMOS')
-    .setDescription(
-      'En 💜 Dedos Shop 💜 compramos tus PETS de GAG por** ROBUX** <:9073robux:1417021867167846420>. <:50230exclamationpoint:1417021877829767168> La lista muestra precios promedio calculados según el valor real de robux y la demanda de cada pet, por lo que pueden subir o bajar según la popularidad del juego. <a:9062kittypaw04:1416604701847322685> ¿No estás conforme con el precio? Abre un ticket y haz tu** oferta**.\n',
-    )
-    .addFields(...SHOP_PET_ROBUX_FIELDS, SHOP_PAYMENT_METHODS_FIELD, SHOP_CLAUSULAS_FIELD, fxService.buildInfoField());
-
-  return applyBrand(embed);
-};
-
-const buildBuyPetsEmbed = (): EmbedBuilder => {
-  const embed = new EmbedBuilder()
-    .setTitle('PETS QUE VENDEMOS')
-    .setDescription(
-      '💜 Dedos Shop 💜 es tu mejor opción para adquirir pets de **Grow a Garden.**\nGarantizamos **precios más bajos** que la competencia y una experiencia de compra confiable.',
-    );
-
-  for (const item of SHOP_STORE_PETS) {
-    embed.addFields({
-      name: item.name,
-      value: `    **${item.mxn} MXN**\n${fxService.formatUsdFromMxn(item.mxn)}`,
-      inline: true,
-    });
-  }
-
-  embed.addFields(SHOP_PAYMENT_METHODS_FIELD, SHOP_CLAUSULAS_FIELD, fxService.buildInfoField());
-
-  return applyBrand(embed);
-};
-
 const buildRobuxEmbed = (): EmbedBuilder => {
   const priceByGroup = fxService.formatUsdFromMxn(125);
   const priceByGame = fxService.formatUsdFromMxn(125);
@@ -213,34 +139,6 @@ const buildDecorationsEmbed = (): EmbedBuilder => {
 
 const SHOP_OPTIONS: readonly ShopTicketOption[] = [
   {
-    id: 'sell_pets',
-    type: TicketType.SELL,
-    menuLabel: 'Vender tus pets (Robux)',
-    menuDescription: 'Cotizamos tus mascotas de Grow a Garden por Robux.',
-    channelPrefix: 'venta',
-    emoji: '🐾',
-    introLines: [
-      'Gracias por confiar en 💜 Dedos Shop 💜 para vender tus pets de Grow a Garden.',
-      'Incluye la lista de pets que ofreces y la cantidad deseada en Robux.',
-      'Adjunta capturas o pruebas de inventario si es posible.',
-    ],
-    embedBuilder: buildSellPetsEmbed,
-  },
-  {
-    id: 'buy_pets',
-    type: TicketType.BUY,
-    menuLabel: 'Comprar pets premium',
-    menuDescription: 'Consulta stock y precios especiales.',
-    channelPrefix: 'compra',
-    emoji: '🛒',
-    introLines: [
-      'Cuéntanos qué pets deseas comprar y cuántas unidades necesitas.',
-      'Indica tu método de pago favorito (PayPal, Litecoin, Oxxo, transferencia).',
-      'El equipo te confirmará stock y proceso de pago en breve.',
-    ],
-    embedBuilder: buildBuyPetsEmbed,
-  },
-  {
     id: 'buy_robux',
     type: TicketType.ROBUX,
     menuLabel: 'Comprar Robux',
@@ -307,7 +205,7 @@ const buildPanelEmbed = (): EmbedBuilder => {
   const embed = new EmbedBuilder()
     .setTitle('COMPRA | VENTA')
     .setDescription(
-      '<a:27572sparkles:1417433396958728254>En 💜 Dedos Shop 💜 puedes pets de Grow a Garden, Robux <:9073robux:1417021867167846420>, N17r0 B005tz <a:7478evolvingbadgenitroascaling:1417021865893036093>, Decoraciones<a:6633kittypaw14:1416604699716751370>, Tambien ofrecemos otros servicios de streaming a cambio de dinero o pets (Para mas informacion abre un ticket de ayuda). \n💜 Dedos Shop 💜 tambien **te compra tus PETS de Grow a Garden por robux.**\n**💠 Selecciona una opción en el menú de abajo para obtener más información.**',
+      '<a:27572sparkles:1417433396958728254>En 💜 Dedos Shop 💜 puedes adquirir Robux <:9073robux:1417021867167846420>, N17r0 B005tz <a:7478evolvingbadgenitroascaling:1417021865893036093> y decoraciones premium<a:6633kittypaw14:1416604699716751370>. También contamos con servicios de asesoría y middleman dedicados para tus intercambios.\n**💠 Selecciona una opción en el menú de abajo para obtener más información.**',
     )
     .addFields(SHOP_PAYMENT_METHODS_FIELD, SHOP_CLAUSULAS_FIELD, fxService.buildInfoField());
 
