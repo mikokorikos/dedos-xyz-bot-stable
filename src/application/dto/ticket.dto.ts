@@ -7,15 +7,11 @@ import { z } from 'zod';
 import { TicketType } from '@/domain/entities/types';
 import { SnowflakeSchema } from '@/shared/utils/validation';
 
-const SNOWFLAKE_CAPTURE_PATTERN = /\d{17,20}/u;
-
 const PartnerIdentifierSchema = z
   .string()
   .trim()
-  .transform((value) => value.match(SNOWFLAKE_CAPTURE_PATTERN)?.[0] ?? '')
-  .refine((value) => value.length > 0, {
-    message: 'Debe proporcionar la mencion o ID del companero',
-  });
+  .min(1, { message: 'Debe proporcionar la mencion o ID del companero' })
+  .max(100, { message: 'El identificador del companero es demasiado largo' });
 
 export const CreateGeneralTicketSchema = z.object({
   userId: SnowflakeSchema,
