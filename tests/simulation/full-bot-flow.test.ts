@@ -994,8 +994,8 @@ describe('Simulación integral del bot', () => {
       member: ownerMember.asGuildMember(),
       type: TicketType.BUY,
       reason: 'Necesito ayuda con un producto.',
-      channelPrefix: 'compra',
-      topicTag: 'buy_pets',
+      channelPrefix: 'consulta',
+      topicTag: 'shop_general',
     });
     expect(supportChannel).toBeDefined();
     logger.complete('Ticket de soporte generado');
