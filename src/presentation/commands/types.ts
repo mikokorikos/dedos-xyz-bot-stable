@@ -22,7 +22,8 @@ type CommandCategory =
   | 'Middleman'
   | 'Tickets'
   | 'Moderación'
-  | 'Administración';
+  | 'Administración'
+  | 'Actividad';
 
 export interface CommandMeta {
   readonly category?: CommandCategory;

@@ -7,6 +7,7 @@ import { ChannelType, MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 import { CloseTradeUseCase } from '@/application/usecases/middleman/CloseTradeUseCase';
 import { DeleteTradeChannelUseCase } from '@/application/usecases/middleman/DeleteTradeChannelUseCase';
+import { DeleteTradeDataUseCase } from '@/application/usecases/middleman/DeleteTradeDataUseCase';
 import { RequestTradeClosureUseCase } from '@/application/usecases/middleman/RequestTradeClosureUseCase';
 import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaMemberStatsRepository } from '@/infrastructure/repositories/PrismaMemberStatsRepository';
@@ -16,10 +17,12 @@ import { PrismaTicketRepository } from '@/infrastructure/repositories/PrismaTick
 import { PrismaTradeRepository } from '@/infrastructure/repositories/PrismaTradeRepository';
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import { ChannelDeletionError, TicketNotFoundError } from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
 import { brandEditReplyOptions, brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
+import { isValidSnowflake, mentionUser } from '@/shared/utils/discord.utils';
 
 const ticketRepository = new PrismaTicketRepository(prisma);
 const tradeRepository = new PrismaTradeRepository(prisma);
@@ -47,6 +50,13 @@ const requestClosureUseCase = new RequestTradeClosureUseCase(
 );
 
 const deleteChannelUseCase = new DeleteTradeChannelUseCase(ticketRepository, middlemanRepository);
+const deleteTradeDataUseCase = new DeleteTradeDataUseCase(
+  ticketRepository,
+  tradeRepository,
+  middlemanRepository,
+  logger,
+);
+const tradePanelRenderer = new TradePanelRenderer(ticketRepository, tradeRepository, logger, embedFactory);
 
 const ensureTextChannel = (interaction: ChatInputCommandInteraction): TextChannel | null => {
   const channel = interaction.channel;
@@ -90,6 +100,27 @@ const ensureMessageChannel = (message: Message): TextChannel | null => {
   }
 
   return channel;
+};
+
+const USER_MENTION_RE = /^<@!?([0-9]{17,20})>$/u;
+
+const resolveUserId = (token: string | undefined): string | null => {
+  if (!token) {
+    return null;
+  }
+
+  const trimmed = token.trim();
+
+  const mention = trimmed.match(USER_MENTION_RE);
+  if (mention) {
+    return mention[1] ?? null;
+  }
+
+  if (isValidSnowflake(trimmed)) {
+    return trimmed;
+  }
+
+  return null;
 };
 
 const handleFinalizeInteraction = async (
@@ -176,6 +207,49 @@ const handleDeleteInteraction = async (
   logger.info(
     { channelId: channel.id, ticketId, actorId: interaction.user.id },
     'Canal de trade eliminado mediante /trade delete.',
+  );
+};
+
+const handleResetInteraction = async (
+  interaction: ChatInputCommandInteraction,
+  channel: TextChannel,
+): Promise<void> => {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const ticket = await ticketRepository.findByChannelId(BigInt(channel.id));
+
+  if (!ticket) {
+    throw new TicketNotFoundError(channel.id);
+  }
+
+  const targetUser = interaction.options.getUser('usuario') ?? interaction.user;
+
+  const result = await deleteTradeDataUseCase.execute({
+    ticketId: ticket.id,
+    actorId: interaction.user.id,
+    targetUserId: targetUser.id,
+  });
+
+  await tradePanelRenderer.render(channel, ticket.id);
+
+  const targetMention = mentionUser(result.targetUserId);
+  const selfTarget = result.targetUserId === interaction.user.id;
+  const baseDescription = selfTarget
+    ? 'Tus datos de trade fueron eliminados. Puedes registrarlos nuevamente usando el panel.'
+    : `Los datos de trade de ${targetMention} fueron eliminados correctamente.`;
+  const extraNote = result.confirmationReset
+    ? '\nEl estado del ticket se restableció para solicitar nuevas confirmaciones.'
+    : '';
+
+  await interaction.editReply(
+    brandEditReplyOptions({
+      embeds: [
+        embedFactory.success({
+          title: 'Datos de trade eliminados',
+          description: `${baseDescription}${extraNote}`,
+        }),
+      ],
+    }),
   );
 };
 
@@ -311,6 +385,81 @@ const handlePrefixDelete = async (message: Message): Promise<void> => {
   );
 };
 
+const handlePrefixReset = async (message: Message, args: readonly string[]): Promise<void> => {
+  const channel = ensureMessageChannel(message);
+
+  if (!channel) {
+    return;
+  }
+
+  const ticket = await ticketRepository.findByChannelId(BigInt(channel.id));
+
+  if (!ticket) {
+    await message.reply({
+      embeds: [
+        embedFactory.error({
+          title: 'Ticket no encontrado',
+          description: 'Este canal no está asociado a un ticket de middleman activo.',
+        }),
+      ],
+      allowedMentions: { repliedUser: false },
+    });
+    return;
+  }
+
+  const [, rawTarget] = args;
+  const resolvedTarget = resolveUserId(rawTarget) ?? null;
+
+  if (rawTarget && !resolvedTarget) {
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Usuario inválido',
+            description: 'Proporciona una mención válida o el ID numérico del usuario a limpiar.',
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+    return;
+  }
+
+  const targetUserId = resolvedTarget ?? message.author.id;
+
+  try {
+    const result = await deleteTradeDataUseCase.execute({
+      ticketId: ticket.id,
+      actorId: message.author.id,
+      targetUserId,
+    });
+
+    await tradePanelRenderer.render(channel, ticket.id);
+
+    const selfTarget = result.targetUserId === message.author.id;
+    const baseDescription = selfTarget
+      ? 'Tus datos de trade fueron eliminados. Puedes registrarlos nuevamente usando el panel.'
+      : `Los datos de trade de ${mentionUser(result.targetUserId)} fueron eliminados correctamente.`;
+    const extraNote = result.confirmationReset
+      ? '\nEl estado del ticket se restableció para solicitar nuevas confirmaciones.'
+      : '';
+
+    await message.reply(
+      brandMessageOptions({
+        embeds: [
+          embedFactory.success({
+            title: 'Datos de trade eliminados',
+            description: `${baseDescription}${extraNote}`,
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      }),
+    );
+  } catch (error) {
+    await replyWithError(message, error);
+  }
+};
+
 const replyWithError = async (message: Message, error: unknown): Promise<void> => {
   const { shouldLogStack, referenceId, embeds, ...payload } = mapErrorToDiscordResponse(error);
 
@@ -354,11 +503,31 @@ export const tradeCommand: Command = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('reset')
+        .setDescription('Elimina los datos registrados por un participante')
+        .addUserOption((option) =>
+          option
+            .setName('usuario')
+            .setDescription('Participante cuyo registro de trade será eliminado')
+            .setRequired(false),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('delete')
         .setDescription('Elimina el canal del trade una vez archivado'),
     ),
   category: 'Middleman',
-  examples: ['/trade finalize', '/trade close', '/trade delete', ';trade finalize', ';trade close', ';trade delete'],
+  examples: [
+    '/trade finalize',
+    '/trade close',
+    '/trade reset',
+    '/trade delete',
+    ';trade finalize',
+    ';trade close',
+    ';trade reset',
+    ';trade delete',
+  ],
   prefix: {
     name: 'trade',
     async execute(message, args) {
@@ -371,7 +540,7 @@ export const tradeCommand: Command = {
             embedFactory.info({
               title: 'Uso de ;trade',
               description:
-                'Subcomandos disponibles: `finalize`, `close` y `delete`. Ejemplo: `;trade finalize`.',
+                'Subcomandos disponibles: `finalize`, `close`, `reset` y `delete`. Ejemplo: `;trade finalize`.',
             }),
           ],
           allowedMentions: { repliedUser: false },
@@ -389,20 +558,25 @@ export const tradeCommand: Command = {
         return;
       }
 
+      if (normalized === 'reset') {
+        await handlePrefixReset(message, args);
+        return;
+      }
+
       if (normalized === 'delete') {
         await handlePrefixDelete(message);
         return;
       }
 
-      await message.reply({
-        embeds: [
-          embedFactory.warning({
-            title: 'Subcomando desconocido',
-            description: 'Utiliza `finalize`, `close` o `delete` para administrar el trade.',
-          }),
-        ],
-        allowedMentions: { repliedUser: false },
-      });
+        await message.reply({
+          embeds: [
+            embedFactory.warning({
+              title: 'Subcomando desconocido',
+              description: 'Utiliza `finalize`, `close`, `reset` o `delete` para administrar el trade.',
+            }),
+          ],
+          allowedMentions: { repliedUser: false },
+        });
     },
   },
   async execute(interaction) {
@@ -425,6 +599,11 @@ export const tradeCommand: Command = {
         return;
       }
 
+      if (subcommand === 'reset') {
+        await handleResetInteraction(interaction, channel);
+        return;
+      }
+
       if (subcommand === 'delete') {
         await handleDeleteInteraction(interaction, channel);
         return;
@@ -435,7 +614,7 @@ export const tradeCommand: Command = {
           embeds: [
             embedFactory.warning({
               title: 'Subcomando desconocido',
-              description: 'Utiliza `finalize`, `close` o `delete` para administrar el trade.',
+              description: 'Utiliza `finalize`, `close`, `reset` o `delete` para administrar el trade.',
             }),
           ],
           flags: MessageFlags.Ephemeral,
