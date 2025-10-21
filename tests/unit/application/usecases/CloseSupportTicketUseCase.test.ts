@@ -5,6 +5,7 @@ import { CloseSupportTicketUseCase } from '@/application/usecases/tickets/CloseS
 import { Ticket } from '@/domain/entities/Ticket';
 import { TicketStatus, TicketType } from '@/domain/entities/types';
 import type { ITicketRepository } from '@/domain/repositories/ITicketRepository';
+import { ValidationFailedError } from '@/shared/errors/domain.errors';
 
 class StubTicketRepository implements ITicketRepository {
   public ticket: Ticket | null = null;
@@ -94,9 +95,9 @@ describe('CloseSupportTicketUseCase', () => {
     );
 
   it('registra advertencia cuando no encuentra el ticket', async () => {
-    const result = await useCase.execute({ channelId: '123', actorId: '999' });
+    const result = await useCase.execute({ channelId: '123', actorId: '999', reason: 'test reason' });
 
-    expect(result).toEqual({ closed: false, ticketId: null });
+    expect(result).toEqual({ closed: false, ticketId: null, ownerId: null });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ channelId: '123', actorId: '999' }),
       'No se encontró ticket asociado al canal al intentar cerrarlo.',
@@ -106,9 +107,9 @@ describe('CloseSupportTicketUseCase', () => {
   it('cierra el ticket cuando ya puede cerrarse', async () => {
     ticketRepo.ticket = createTicket(TicketStatus.CLAIMED);
 
-    const result = await useCase.execute({ channelId: '123', actorId: '321' });
+    const result = await useCase.execute({ channelId: '123', actorId: '321', reason: 'closing ticket' });
 
-    expect(result).toEqual({ closed: true, ticketId: 1 });
+    expect(result).toEqual({ closed: true, ticketId: 1, ownerId: '5' });
     expect(ticketRepo.ticket?.status).toBe(TicketStatus.CLOSED);
     expect(ticketRepo.updatedTicket).not.toBeNull();
   });
@@ -116,7 +117,7 @@ describe('CloseSupportTicketUseCase', () => {
   it('confirma el ticket antes de cerrarlo cuando está abierto', async () => {
     ticketRepo.ticket = createTicket(TicketStatus.OPEN);
 
-    const result = await useCase.execute({ channelId: '123', actorId: '321' });
+    const result = await useCase.execute({ channelId: '123', actorId: '321', reason: 'closing ticket' });
 
     expect(result.closed).toBe(true);
     expect(ticketRepo.ticket?.status).toBe(TicketStatus.CLOSED);
@@ -126,12 +127,18 @@ describe('CloseSupportTicketUseCase', () => {
     ticketRepo.ticket = createTicket(TicketStatus.CLAIMED);
     ticketRepo.updateShouldFail = true;
 
-    const result = await useCase.execute({ channelId: '123', actorId: '321' });
+    const result = await useCase.execute({ channelId: '123', actorId: '321', reason: 'closing ticket' });
 
-    expect(result).toEqual({ closed: true, ticketId: 1 });
+    expect(result).toEqual({ closed: true, ticketId: 1, ownerId: '5' });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ ticketId: 1 }),
       'No se pudo persistir el ticket tras intentar cerrarlo manualmente.',
     );
+  });
+
+  it('rechaza razones demasiado cortas', async () => {
+    await expect(
+      useCase.execute({ channelId: '123', actorId: '321', reason: '   no  ' }),
+    ).rejects.toBeInstanceOf(ValidationFailedError);
   });
 });

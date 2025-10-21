@@ -9,6 +9,7 @@ import {
   GuildMember,
   type Message,
   MessageFlags,
+  type ModalSubmitInteraction,
   PermissionFlagsBits,
   SlashCommandBuilder,
   type TextChannel,
@@ -24,8 +25,19 @@ import { PrismaTicketRepository } from '@/infrastructure/repositories/PrismaTick
 import { PrismaTicketTranscriptRepository } from '@/infrastructure/repositories/PrismaTicketTranscriptRepository';
 import type { Command } from '@/presentation/commands/types';
 import { MiddlemanModal } from '@/presentation/components/modals/MiddlemanModal';
-import { registerButtonHandler, registerSelectMenuHandler } from '@/presentation/components/registry';
+import { TicketCloseReasonModal } from '@/presentation/components/modals/TicketCloseReasonModal';
+import { registerButtonHandler, registerModalHandler, registerSelectMenuHandler } from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import {
+  buildTicketClosureConfirmationEmbed,
+  buildTicketClosureDMEmbed,
+  buildTicketClosureFailedEmbed,
+  buildTicketClosureReasonRequiredEmbed,
+  buildTicketClosureUnexpectedErrorEmbed,
+  buildTicketNotAvailableEmbed,
+  buildTicketNotAvailablePrefixEmbed,
+  buildTicketNotAvailableSlashEmbed,
+} from '@/presentation/embeds/ticketEmbeds';
 import {
   buildTicketIntroMessage,
   buildTicketPanelMessage,
@@ -85,11 +97,49 @@ const isTicketStaff = (member: GuildMember | null): boolean => {
   return hasStaffRole || isAdmin;
 };
 
-const dispatchTicketClosure = async (
+const notifyTicketOwner = async (
   channel: TextChannel,
-  actorId: string,
+  ownerId: string,
   ticketId: number | null,
+  reason: string,
 ): Promise<void> => {
+  try {
+    const user = await channel.client.users.fetch(ownerId);
+    const embed = buildTicketClosureDMEmbed(ticketId, reason);
+
+    await user.send(
+      brandMessageOptions({
+        embeds: [embed],
+        allowedMentions: { parse: [] },
+      }),
+    );
+  } catch (error) {
+    logger.warn(
+      { err: error, channelId: channel.id, ownerId },
+      'No se pudo enviar el mensaje directo con el motivo de cierre.',
+    );
+  }
+};
+
+interface TicketClosureDispatchPayload {
+  readonly channel: TextChannel;
+  readonly actorId: string;
+  readonly ticketId: number | null;
+  readonly ownerId: string | null;
+  readonly reason: string;
+}
+
+const dispatchTicketClosure = async ({
+  channel,
+  actorId,
+  ticketId,
+  ownerId,
+  reason,
+}: TicketClosureDispatchPayload): Promise<void> => {
+  if (ownerId) {
+    await notifyTicketOwner(channel, ownerId, ticketId, reason);
+  }
+
   try {
     await channel.send('[LOCK] Ticket cerrado por el staff. El canal se eliminará en 10 segundos.');
   } catch (error) {
@@ -103,7 +153,13 @@ const dispatchTicketClosure = async (
   }, 10_000);
 
   logger.info(
-    { channelId: channel.id, actorId, ticketId: ticketId ?? undefined },
+    {
+      channelId: channel.id,
+      actorId,
+      ticketId: ticketId ?? undefined,
+      ownerId: ownerId ?? undefined,
+      reason,
+    },
     'Ticket de soporte cerrado manualmente.',
   );
 };
@@ -190,6 +246,94 @@ const ensureTicketStaffContextFromInteraction = async (
           embedFactory.warning({
             title: 'Acceso denegado',
             description: 'Solo el staff de tickets o un administrador puede usar este comando.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return null;
+  }
+
+  return { channel: interaction.channel, member };
+};
+
+const ensureTicketStaffContextFromModal = async (
+  interaction: ModalSubmitInteraction,
+): Promise<TicketStaffContext | null> => {
+  if (!interaction.guild) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'Acción no disponible',
+            description: 'Este formulario solo puede utilizarse en servidores.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return null;
+  }
+
+  if (!interaction.channel || interaction.channel.type !== ChannelType.GuildText) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.error({
+            title: 'Canal no válido',
+            description: 'Este formulario debe enviarse dentro del canal del ticket.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return null;
+  }
+
+  if (!parseTicketTopic(interaction.channel.topic)) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Ticket desconocido',
+            description: 'No se encontró información del ticket asociada a este canal.',
+          }),
+        ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return null;
+  }
+
+  let member: GuildMember | null = null;
+  if (interaction.member instanceof GuildMember) {
+    member = interaction.member;
+  } else {
+    try {
+      member = await interaction.guild.members.fetch(interaction.user.id);
+    } catch {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.error({
+              title: 'Miembro no disponible',
+              description: 'No se pudo validar tu membresía para cerrar el ticket.',
+            }),
+          ],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return null;
+    }
+  }
+
+  if (!isTicketStaff(member)) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [
+          embedFactory.warning({
+            title: 'Acceso denegado',
+            description: 'Solo el staff de tickets o un administrador puede cerrar este ticket.',
           }),
         ],
         flags: MessageFlags.Ephemeral,
@@ -456,37 +600,81 @@ registerButtonHandler(TICKET_CLOSE_BUTTON_ID, async (interaction) => {
   }
 
   try {
-    const channel = interaction.channel;
-    const { ticketId } = await closeSupportTicketUseCase.execute({
-      channelId: channel.id,
-      actorId: interaction.user.id,
-    });
-
-    await interaction.reply(
-      brandReplyOptions({
-        embeds: [
-          embedFactory.success({
-            title: 'Ticket cerrado',
-            description: 'Este canal se eliminará en 10 segundos.',
-          }),
-        ],
-        flags: MessageFlags.Ephemeral,
-      }),
-    );
-
-    void dispatchTicketClosure(channel, interaction.user.id, ticketId);
+    await interaction.showModal(TicketCloseReasonModal.build());
   } catch (error) {
-    logger.error({ err: error, channelId: interaction.channel.id }, 'No se pudo cerrar el ticket desde el botón.');
+    logger.error(
+      { err: error, channelId: interaction.channel.id },
+      'No se pudo mostrar el formulario de cierre de ticket.',
+    );
 
     await interaction.reply(
       brandReplyOptions({
         embeds: [
           embedFactory.error({
-            title: 'No se pudo cerrar el ticket',
-            description: 'Ocurrió un error inesperado al intentar cerrar el ticket.',
+            title: 'No se pudo iniciar el cierre',
+            description: 'Intenta nuevamente o utiliza el comando `/ticket-close` con un motivo.',
           }),
         ],
         flags: MessageFlags.Ephemeral,
+      }),
+    );
+  }
+});
+
+registerModalHandler(TicketCloseReasonModal.CUSTOM_ID, async (interaction) => {
+  const context = await ensureTicketStaffContextFromModal(interaction);
+  if (!context) {
+    return;
+  }
+
+  const reason = TicketCloseReasonModal.extractReason(interaction);
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const result = await closeSupportTicketUseCase.execute({
+      channelId: context.channel.id,
+      actorId: interaction.user.id,
+      reason,
+    });
+
+    if (!result.closed) {
+      await interaction.editReply(
+        brandEditReplyOptions({
+          embeds: [buildTicketNotAvailableEmbed()],
+        }),
+      );
+      return;
+    }
+
+    await interaction.editReply(
+      brandEditReplyOptions({
+        embeds: [buildTicketClosureConfirmationEmbed(reason)],
+      }),
+    );
+
+    void dispatchTicketClosure({
+      channel: context.channel,
+      actorId: interaction.user.id,
+      ticketId: result.ticketId,
+      ownerId: result.ownerId,
+      reason,
+    });
+  } catch (error) {
+    if (error instanceof ValidationFailedError) {
+      await interaction.editReply(
+        brandEditReplyOptions({
+          embeds: [buildTicketClosureFailedEmbed(extractValidationMessage(error))],
+        }),
+      );
+      return;
+    }
+
+    logger.error({ err: error, channelId: context.channel.id }, 'No se pudo cerrar el ticket desde el modal.');
+
+    await interaction.editReply(
+      brandEditReplyOptions({
+        embeds: [buildTicketClosureUnexpectedErrorEmbed()],
       }),
     );
   }
@@ -630,47 +818,74 @@ const publishTicketPanel = async (interaction: ChatInputCommandInteraction): Pro
 export const ticketCloseCommand: Command = {
   data: new SlashCommandBuilder()
     .setName('ticket-close')
-    .setDescription('Cierra el ticket de soporte actual.'),
+    .setDescription('Cierra el ticket de soporte actual.')
+    .addStringOption((option) =>
+      option
+        .setName('reason')
+        .setDescription('Explica por qué se cierra el ticket.')
+        .setRequired(true)
+        .setMaxLength(1000),
+    ),
   category: 'Tickets',
-  examples: ['/ticket-close', `${env.COMMAND_PREFIX}ticket close`],
+  examples: [
+    '/ticket-close reason:"El caso fue resuelto"',
+    `${env.COMMAND_PREFIX}ticket close Caso resuelto con el usuario`,
+  ],
   async execute(interaction) {
     const context = await ensureTicketStaffContextFromInteraction(interaction);
     if (!context) {
       return;
     }
 
+    const reason = interaction.options.getString('reason', true).trim();
+
     await interaction.deferReply({ ephemeral: true });
 
     try {
       const channel = context.channel;
-      const { ticketId } = await closeSupportTicketUseCase.execute({
+      const result = await closeSupportTicketUseCase.execute({
         channelId: channel.id,
         actorId: interaction.user.id,
+        reason,
       });
 
+      if (!result.closed) {
       await interaction.editReply(
         brandEditReplyOptions({
-          embeds: [
-            embedFactory.success({
-              title: 'Ticket cerrado',
-              description: 'Este canal se eliminará en 10 segundos.',
-            }),
-          ],
+          embeds: [buildTicketNotAvailableSlashEmbed()],
         }),
       );
+      return;
+    }
 
-      void dispatchTicketClosure(channel, interaction.user.id, ticketId);
+    await interaction.editReply(
+      brandEditReplyOptions({
+        embeds: [buildTicketClosureConfirmationEmbed(reason)],
+      }),
+    );
+
+      void dispatchTicketClosure({
+        channel,
+        actorId: interaction.user.id,
+        ticketId: result.ticketId,
+        ownerId: result.ownerId,
+        reason,
+      });
     } catch (error) {
+      if (error instanceof ValidationFailedError) {
+        await interaction.editReply(
+          brandEditReplyOptions({
+            embeds: [buildTicketClosureFailedEmbed(extractValidationMessage(error))],
+          }),
+        );
+        return;
+      }
+
       logger.error({ err: error, channelId: context.channel.id }, 'No se pudo cerrar el ticket mediante comando slash.');
 
       await interaction.editReply(
         brandEditReplyOptions({
-          embeds: [
-            embedFactory.error({
-              title: 'No se pudo cerrar el ticket',
-              description: 'Ocurrió un error inesperado al intentar cerrar el ticket.',
-            }),
-          ],
+          embeds: [buildTicketClosureUnexpectedErrorEmbed()],
         }),
       );
     }
@@ -863,25 +1078,55 @@ export const ticketTranscriptCommand: Command = {
           return;
         }
 
+        const reason = args.slice(1).join(' ').trim();
+        if (reason.length < 5) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [buildTicketClosureReasonRequiredEmbed()],
+            }),
+          );
+          return;
+        }
+
         try {
-          const { ticketId } = await closeSupportTicketUseCase.execute({
+          const result = await closeSupportTicketUseCase.execute({
             channelId: context.channel.id,
             actorId: message.author.id,
+            reason,
           });
+
+          if (!result.closed) {
+            await message.reply(
+              brandMessageOptions({
+                embeds: [buildTicketNotAvailablePrefixEmbed()],
+              }),
+            );
+            return;
+          }
 
           await message.reply(
             brandMessageOptions({
-              embeds: [
-                embedFactory.success({
-                  title: 'Ticket cerrado',
-                  description: 'Este canal se eliminará en 10 segundos.',
-                }),
-              ],
+              embeds: [buildTicketClosureConfirmationEmbed(reason)],
             }),
           );
 
-          void dispatchTicketClosure(context.channel, message.author.id, ticketId);
+          void dispatchTicketClosure({
+            channel: context.channel,
+            actorId: message.author.id,
+            ticketId: result.ticketId,
+            ownerId: result.ownerId,
+            reason,
+          });
         } catch (error) {
+          if (error instanceof ValidationFailedError) {
+            await message.reply(
+              brandMessageOptions({
+                embeds: [buildTicketClosureFailedEmbed(extractValidationMessage(error))],
+              }),
+            );
+            return;
+          }
+
           logger.error(
             { err: error, channelId: message.channel.id },
             'No se pudo cerrar el ticket con comando de prefijo.',
@@ -889,12 +1134,7 @@ export const ticketTranscriptCommand: Command = {
 
           await message.reply(
             brandMessageOptions({
-              embeds: [
-                embedFactory.error({
-                  title: 'No se pudo cerrar el ticket',
-                  description: 'Ocurrió un error inesperado al intentar cerrar el ticket.',
-                }),
-              ],
+              embeds: [buildTicketClosureUnexpectedErrorEmbed()],
             }),
           );
         }

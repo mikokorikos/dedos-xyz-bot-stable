@@ -6,15 +6,18 @@ import type { Logger } from 'pino';
 
 import { TicketStatus } from '@/domain/entities/types';
 import type { ITicketRepository } from '@/domain/repositories/ITicketRepository';
+import { ValidationFailedError } from '@/shared/errors/domain.errors';
 
 interface CloseSupportTicketParams {
   readonly channelId: string;
   readonly actorId: string;
+  readonly reason: string;
 }
 
 interface CloseSupportTicketResult {
   readonly closed: boolean;
   readonly ticketId: number | null;
+  readonly ownerId: string | null;
 }
 
 export class CloseSupportTicketUseCase {
@@ -23,19 +26,26 @@ export class CloseSupportTicketUseCase {
     private readonly logger: Logger,
   ) {}
 
-  public async execute({ channelId, actorId }: CloseSupportTicketParams): Promise<CloseSupportTicketResult> {
+  public async execute({ channelId, actorId, reason }: CloseSupportTicketParams): Promise<CloseSupportTicketResult> {
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 5) {
+      throw new ValidationFailedError({
+        reason: 'Debes proporcionar un motivo de al menos 5 caracteres para cerrar el ticket.',
+      });
+    }
+
     const numericChannelId = BigInt(channelId);
 
     const ticket = await this.ticketRepo.findByChannelId(numericChannelId);
     if (!ticket) {
       this.logger.warn({ channelId, actorId }, 'No se encontró ticket asociado al canal al intentar cerrarlo.');
-      return { closed: false, ticketId: null };
+      return { closed: false, ticketId: null, ownerId: null };
     }
 
     let wasClosed = ticket.status === TicketStatus.CLOSED;
 
     if (wasClosed) {
-      return { closed: true, ticketId: ticket.id };
+      return { closed: true, ticketId: ticket.id, ownerId: ticket.ownerId.toString() };
     }
 
     if (!ticket.canBeClosed()) {
@@ -70,6 +80,11 @@ export class CloseSupportTicketUseCase {
       );
     }
 
-    return { closed: wasClosed, ticketId: ticket.id };
+    this.logger.info(
+      { ticketId: ticket.id, actorId, reason: trimmedReason },
+      'Ticket de soporte marcado para cierre manual.',
+    );
+
+    return { closed: wasClosed, ticketId: ticket.id, ownerId: ticket.ownerId.toString() };
   }
 }
