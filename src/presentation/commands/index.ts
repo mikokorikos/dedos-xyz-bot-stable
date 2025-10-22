@@ -21,7 +21,6 @@ import { statsCommand } from '@/presentation/commands/stats/stats';
 import {
   ticketCloseCommand,
   ticketsPanelCommand,
-  ticketTranscriptCommand,
 } from '@/presentation/commands/tickets/tickets';
 import type { Command } from '@/presentation/commands/types';
 import { unwarnCommand } from '@/presentation/commands/warns/unwarn';
@@ -39,7 +38,6 @@ const commands: Command[] = [
   tradeCommand,
   statsCommand,
   ticketCloseCommand,
-  ticketTranscriptCommand,
   ticketsPanelCommand,
   unwarnCommand,
   verbalWarnCommand,
