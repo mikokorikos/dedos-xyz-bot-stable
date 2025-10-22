@@ -20,8 +20,8 @@ import type { Env } from '@/shared/config/env';
 import {
   FEATURE_DISPLAY_NAMES,
   FEATURE_FLAG_ENV_KEYS,
-  getFeatureFlags,
   type FeatureFlagKey,
+  getFeatureFlags,
 } from '@/shared/config/runtime';
 import { brandReplyOptions } from '@/shared/utils/branding';
 

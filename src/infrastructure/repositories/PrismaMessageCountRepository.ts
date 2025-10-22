@@ -20,6 +20,9 @@ const normalizeLimit = (limit: number | undefined): number =>
 const MESSAGE_COUNT_TABLE = 'message_counts';
 let warnedMissingMessageCountTable = false;
 
+const EMPTY_CHANNEL_TOTALS: readonly MessageCountChannelTotal[] = [];
+const EMPTY_MESSAGE_TOTALS: readonly MessageCountTotal[] = [];
+
 const extractErrorMessage = (error: unknown): string => {
   if (!error) {
     return '';
@@ -85,8 +88,11 @@ const handleMissingTable = <T>(error: unknown, fallback: T): T => {
   throw error;
 };
 
-const getMessageCountDelegate = (client: PrismaClient | Prisma.TransactionClient) =>
-  (client as unknown as { messageCount: any }).messageCount;
+type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
+
+const getMessageCountDelegate = (
+  client: PrismaClientLike,
+): Prisma.MessageCountDelegate<false> => client.messageCount;
 
 export class PrismaMessageCountRepository implements IMessageCountRepository {
   public constructor(private readonly prisma: PrismaClient) {}
@@ -235,15 +241,16 @@ export class PrismaMessageCountRepository implements IMessageCountRepository {
     const resolvedLimit = normalizeLimit(limit);
 
     try {
-      const rows = (await getMessageCountDelegate(this.prisma).findMany({
+      const rows = await getMessageCountDelegate(this.prisma).findMany({
         where: { guildId, userId },
+        select: { channelId: true, total: true },
         orderBy: { total: 'desc' },
         take: resolvedLimit,
-      })) as Array<{ channelId: bigint; total: number }>;
+      });
 
       return rows.map((row) => ({ channelId: row.channelId, total: row.total }));
     } catch (error) {
-      return handleMissingTable(error, [] as MessageCountChannelTotal[]);
+      return handleMissingTable(error, EMPTY_CHANNEL_TOTALS);
     }
   }
 
@@ -254,19 +261,19 @@ export class PrismaMessageCountRepository implements IMessageCountRepository {
     const resolvedLimit = normalizeLimit(limit);
 
     try {
-      const rows = (await getMessageCountDelegate(this.prisma).groupBy({
+      const rows = await getMessageCountDelegate(this.prisma).groupBy({
         by: ['userId'],
         where: { guildId },
         _sum: { total: true },
         orderBy: { _sum: { total: 'desc' } },
         take: resolvedLimit,
-      })) as Array<{ userId: bigint; _sum: { total: number | null } }>;
+      });
 
       return rows
         .map((row) => ({ userId: row.userId, total: row._sum.total ?? 0 }))
         .filter((row) => row.total > 0);
     } catch (error) {
-      return handleMissingTable(error, [] as MessageCountTotal[]);
+      return handleMissingTable(error, EMPTY_MESSAGE_TOTALS);
     }
   }
 
@@ -291,15 +298,16 @@ export class PrismaMessageCountRepository implements IMessageCountRepository {
     const resolvedLimit = normalizeLimit(limit);
 
     try {
-      const rows = (await getMessageCountDelegate(this.prisma).findMany({
+      const rows = await getMessageCountDelegate(this.prisma).findMany({
         where: { guildId, channelId },
+        select: { userId: true, total: true },
         orderBy: { total: 'desc' },
         take: resolvedLimit,
-      })) as Array<{ userId: bigint; total: number }>;
+      });
 
       return rows.map((row) => ({ userId: row.userId, total: row.total }));
     } catch (error) {
-      return handleMissingTable(error, [] as MessageCountTotal[]);
+      return handleMissingTable(error, EMPTY_MESSAGE_TOTALS);
     }
   }
 

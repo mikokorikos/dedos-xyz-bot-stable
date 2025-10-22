@@ -17,8 +17,9 @@ import { logger } from '@/shared/logger/pino';
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-const getTicketTranscriptDelegate = (client: PrismaClientLike) =>
-  (client as unknown as { ticketTranscript: any }).ticketTranscript;
+const getTicketTranscriptDelegate = (
+  client: PrismaClientLike,
+): Prisma.TicketTranscriptDelegate<false> => client.ticketTranscript;
 
 interface TicketTranscriptRecord {
   id: string;

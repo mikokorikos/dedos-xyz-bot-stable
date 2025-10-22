@@ -35,7 +35,7 @@ export const messageReactionAddEvent: EventDescriptor<typeof Events.MessageReact
         return;
       }
     } else {
-      reactingUser = user as User;
+      reactingUser = user;
     }
 
     if (await isFeatureEnabled('verification')) {
