@@ -10,6 +10,7 @@ import { env } from '@/shared/config/env';
 import { isFeatureEnabled } from '@/shared/config/runtime';
 import { logger } from '@/shared/logger/pino';
 import { FxService } from '@/shared/services/FxService';
+import { brandReplyOptions } from '@/shared/utils/branding';
 
 import { WelcomeService } from './WelcomeService';
 
@@ -29,10 +30,12 @@ export const helpMenuService = new HelpMenuService({ env, logger, verificationSe
 
 registerButtonHandler(verificationService.buttonCustomId, async (interaction) => {
   if (!(await isFeatureEnabled('verification'))) {
-    await interaction.reply({
-      embeds: [buildFeatureDisabledEmbed('verification')],
-      ephemeral: true,
-    });
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('verification')],
+        ephemeral: true,
+      }),
+    );
     return;
   }
 
@@ -41,10 +44,12 @@ registerButtonHandler(verificationService.buttonCustomId, async (interaction) =>
 
 registerSelectMenuHandler(helpMenuService.customId, async (interaction) => {
   if (!(await isFeatureEnabled('verification'))) {
-    await interaction.reply({
-      embeds: [buildFeatureDisabledEmbed('verification')],
-      ephemeral: true,
-    });
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('verification')],
+        ephemeral: true,
+      }),
+    );
     return;
   }
 
