@@ -23,6 +23,22 @@ let warnedMissingMessageCountTable = false;
 const EMPTY_CHANNEL_TOTALS: readonly MessageCountChannelTotal[] = [];
 const EMPTY_MESSAGE_TOTALS: readonly MessageCountTotal[] = [];
 
+interface MessageCountRow {
+  readonly guildId: bigint;
+  readonly channelId: bigint;
+  readonly userId: bigint;
+  readonly total: number;
+}
+
+interface MessageCountAggregateResult {
+  readonly _sum: { readonly total: number | null };
+}
+
+interface MessageCountGroupRow {
+  readonly userId: bigint;
+  readonly _sum: { readonly total: number | null };
+}
+
 const extractErrorMessage = (error: unknown): string => {
   if (!error) {
     return '';
@@ -90,9 +106,17 @@ const handleMissingTable = <T>(error: unknown, fallback: T): T => {
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-const getMessageCountDelegate = (
-  client: PrismaClientLike,
-): Prisma.MessageCountDelegate<false> => client.messageCount;
+interface MessageCountDelegate {
+  upsert(args: unknown): Promise<MessageCountRow>;
+  findUnique(args: unknown): Promise<MessageCountRow | null>;
+  update(args: unknown): Promise<MessageCountRow>;
+  aggregate(args: unknown): Promise<MessageCountAggregateResult>;
+  findMany(args: unknown): Promise<readonly MessageCountRow[]>;
+  groupBy(args: unknown): Promise<readonly MessageCountGroupRow[]>;
+}
+
+const getMessageCountDelegate = (client: PrismaClientLike): MessageCountDelegate =>
+  (client as unknown as { messageCount: MessageCountDelegate }).messageCount;
 
 export class PrismaMessageCountRepository implements IMessageCountRepository {
   public constructor(private readonly prisma: PrismaClient) {}
