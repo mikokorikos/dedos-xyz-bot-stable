@@ -21,7 +21,7 @@ import {
   updateFeatureFlag,
   updateRuntimeConfig,
 } from '@/shared/config/runtime';
-import { brandMessageOptions } from '@/shared/utils/branding';
+import { brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
 import { hasPermissions } from '@/shared/utils/permissions';
 
 const CONFIG_KEYS = ['reviewsChannelId'] as const;
@@ -128,10 +128,12 @@ export const configCommand: Command = {
   ],
   async execute(interaction) {
     if (!interaction.guild) {
-      await interaction.reply({
-        embeds: [embedFactory.error({ title: 'Acción no disponible', description: 'Solo usable en servidores.' })],
-        ephemeral: true,
-      });
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [embedFactory.error({ title: 'Acción no disponible', description: 'Solo usable en servidores.' })],
+          ephemeral: true,
+        }),
+      );
       return;
     }
 
@@ -141,10 +143,12 @@ export const configCommand: Command = {
         : await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 
     if (!hasPermissions(member, PERMISSIONS.admin)) {
-      await interaction.reply({
-        embeds: [embedFactory.error({ title: 'Permisos insuficientes', description: 'Necesitas permisos de administrador.' })],
-        ephemeral: true,
-      });
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [embedFactory.error({ title: 'Permisos insuficientes', description: 'Necesitas permisos de administrador.' })],
+          ephemeral: true,
+        }),
+      );
       return;
     }
 
@@ -153,10 +157,12 @@ export const configCommand: Command = {
     if (subcommand === 'features') {
       const features = await getFeatureFlags();
 
-      await interaction.reply({
-        embeds: [buildFeatureStatusListEmbed(features)],
-        ephemeral: true,
-      });
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureStatusListEmbed(features)],
+          ephemeral: true,
+        }),
+      );
       return;
     }
 
@@ -166,10 +172,12 @@ export const configCommand: Command = {
 
       await updateFeatureFlag(feature, enabled);
 
-      await interaction.reply({
-        embeds: [buildFeatureUpdatedEmbed(feature, enabled)],
-        ephemeral: true,
-      });
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureUpdatedEmbed(feature, enabled)],
+          ephemeral: true,
+        }),
+      );
       return;
     }
 
@@ -177,17 +185,19 @@ export const configCommand: Command = {
       const key = interaction.options.getString('clave', true) as ConfigKey;
       const config = await loadRuntimeConfig();
 
-      await interaction.reply({
-        embeds: [
-          embedFactory.info({
-            title: 'Configuración actual',
-            fields: [
-              { name: key, value: String(config[key] ?? 'null') },
-            ],
-          }),
-        ],
-        ephemeral: true,
-      });
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.info({
+              title: 'Configuración actual',
+              fields: [
+                { name: key, value: String(config[key] ?? 'null') },
+              ],
+            }),
+          ],
+          ephemeral: true,
+        }),
+      );
       return;
     }
 
@@ -198,15 +208,17 @@ export const configCommand: Command = {
 
       const updated = await updateRuntimeConfig({ [key]: value } as Record<ConfigKey, string | null>);
 
-      await interaction.reply({
-        embeds: [
-          embedFactory.success({
-            title: 'Configuración actualizada',
-            description: `La clave **${key}** ahora vale **${updated[key] ?? 'null'}**.`,
-          }),
-        ],
-        ephemeral: true,
-      });
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [
+            embedFactory.success({
+              title: 'Configuración actualizada',
+              description: `La clave **${key}** ahora vale **${updated[key] ?? 'null'}**.`,
+            }),
+          ],
+          ephemeral: true,
+        }),
+      );
     }
   },
   prefix: {

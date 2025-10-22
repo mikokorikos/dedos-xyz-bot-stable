@@ -6,11 +6,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { inspect } from 'node:util';
 
 import type { TextBasedChannel } from 'discord.js';
-import { EmbedBuilder } from 'discord.js';
 
-import { COLORS } from '@/shared/config/constants';
 import { env } from '@/shared/config/env';
-import { applyDedosBrand, brandMessageOptions } from '@/shared/utils/branding';
+import { brandMessageOptions } from '@/shared/utils/branding';
+
+import { buildVerboseDebugEmbed } from './debugEmbeds';
 
 const MAX_LINES = 18;
 const MAX_CONTENT_LENGTH = 1800;
@@ -83,12 +83,7 @@ class VerboseDebugSession {
       '```',
     ].join('\n');
 
-    const embed = applyDedosBrand(
-      new EmbedBuilder()
-        .setColor(COLORS.info)
-        .setTitle('Depuracion interactiva')
-        .setDescription(description),
-    );
+    const embed = buildVerboseDebugEmbed(description);
 
     await this.context.channel.send(
       brandMessageOptions({

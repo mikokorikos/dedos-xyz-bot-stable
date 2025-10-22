@@ -4,7 +4,6 @@
 
 import {
   ActionRowBuilder,
-  EmbedBuilder,
   type InteractionReplyOptions,
   StringSelectMenuBuilder,
   type StringSelectMenuInteraction,
@@ -12,7 +11,11 @@ import {
 } from 'discord.js';
 import type { Logger } from 'pino';
 
-import { DEDOS_BRAND } from '@/shared/config/branding';
+import {
+  buildVerificationHelpEmbed,
+  buildVerificationServicesHelpEmbed,
+  buildVerificationTicketsHelpEmbed,
+} from '@/presentation/embeds/verificationEmbeds';
 import type { Env } from '@/shared/config/env';
 import { brandReplyOptions } from '@/shared/utils/branding';
 
@@ -44,7 +47,7 @@ export class HelpMenuService {
   public buildMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
     const menu = new StringSelectMenuBuilder()
       .setCustomId(this.customId)
-      .setPlaceholder('Selecciona una pregunta frecuente')
+      .setPlaceholder('Elige una pregunta de ayuda')
       .addOptions(this.buildOptions());
 
     return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
@@ -79,20 +82,20 @@ export class HelpMenuService {
 
   private buildOptions(): StringSelectMenuOptionBuilder[] {
     return [
-      new StringSelectMenuOptionBuilder().setLabel('¿Cómo verificarse?').setValue('verification'),
-      new StringSelectMenuOptionBuilder().setLabel('¿Qué ofrece Dedos Shop?').setValue('services'),
-      new StringSelectMenuOptionBuilder().setLabel('¿Cómo comprar o vender?').setValue('tickets'),
+      new StringSelectMenuOptionBuilder().setLabel('Eventos y premios').setValue('events'),
+      new StringSelectMenuOptionBuilder().setLabel('¿Qué puedo hacer en el servidor?').setValue('server'),
+      new StringSelectMenuOptionBuilder().setLabel('¿Cómo verificarse?').setValue('verify'),
     ];
   }
 
   private buildResponse(option: string, interaction: StringSelectMenuInteraction): InteractionReplyOptions | null {
     switch (option) {
-      case 'verification':
-        return this.buildVerificationHelp(interaction);
-      case 'services':
+      case 'events':
+        return this.buildEventsHelp();
+      case 'server':
         return this.buildServicesHelp();
-      case 'tickets':
-        return this.buildTicketsHelp();
+      case 'verify':
+        return this.buildVerificationHelp(interaction);
       default:
         this.logger.warn({ option }, '[HELP] Solicitud de ayuda desconocida.');
         return null;
@@ -108,49 +111,19 @@ export class HelpMenuService {
       ? `https://discord.com/channels/${guildId}/${channelId}/${messageId}`
       : this.env.COMMUNITY_URL;
 
-    const embed = new EmbedBuilder()
-      .setColor(DEDOS_BRAND.accentColor)
-      .setTitle('Verificación del servidor')
-      .setDescription(
-        [
-          'Para acceder a todos los canales pulsa el botón **Verificarme** en el mensaje de reglas.',
-          `Puedes abrirlo directamente aquí: ${link}`,
-          'Si el botón no aparece, vuelve a publicar las reglas con `/rules`.',
-        ].join('\n'),
-      )
-      .setFooter({ text: DEDOS_BRAND.footer.text, iconURL: DEDOS_BRAND.footer.iconURL });
+    const embed = buildVerificationHelpEmbed(link);
 
     return brandReplyOptions({ embeds: [embed], ephemeral: true });
   }
 
   private buildServicesHelp(): InteractionReplyOptions {
-    const embed = new EmbedBuilder()
-      .setColor(DEDOS_BRAND.color)
-      .setTitle('¿Qué puedo hacer en Dedos Shop?')
-      .setDescription(
-        [
-          '• Usa nuestro middleman oficial para trades seguros sin propinas obligatorias.',
-          '• Compra productos y servicios con precios actualizados en MXN y USD.',
-          '• Comparte sugerencias y participa en eventos de la comunidad.',
-        ].join('\n'),
-      )
-      .setFooter({ text: DEDOS_BRAND.footer.text, iconURL: DEDOS_BRAND.footer.iconURL });
+    const embed = buildVerificationServicesHelpEmbed();
 
     return brandReplyOptions({ embeds: [embed], ephemeral: true });
   }
 
-  private buildTicketsHelp(): InteractionReplyOptions {
-    const embed = new EmbedBuilder()
-      .setColor(DEDOS_BRAND.color)
-      .setTitle('Compras, ventas y soporte')
-      .setDescription(
-        [
-          '• Abre un ticket desde el panel de `/tickets panel` para recibir atención personalizada.',
-          '• Comparte los detalles de tu compra/venta para obtener una cotización rápida.',
-          '• Revisa los métodos de pago y cláusulas en el panel antes de confirmar el trato.',
-        ].join('\n'),
-      )
-      .setFooter({ text: DEDOS_BRAND.footer.text, iconURL: DEDOS_BRAND.footer.iconURL });
+  private buildEventsHelp(): InteractionReplyOptions {
+    const embed = buildVerificationTicketsHelpEmbed();
 
     return brandReplyOptions({ embeds: [embed], ephemeral: true });
   }

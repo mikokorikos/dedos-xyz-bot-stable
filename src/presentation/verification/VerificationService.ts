@@ -11,15 +11,18 @@ import {
   ButtonBuilder,
   type ButtonInteraction,
   ButtonStyle,
-  EmbedBuilder,
   type GuildMember,
   type MessageCreateOptions,
 } from 'discord.js';
 import type { Logger } from 'pino';
 
-import { DEDOS_BRAND, resolveDedosAsset } from '@/shared/config/branding';
+import {
+  buildVerificationCompletedEmbed,
+  buildVerificationRulesEmbed,
+} from '@/presentation/embeds/verificationEmbeds';
+import { resolveDedosAsset } from '@/shared/config/branding';
 import type { Env } from '@/shared/config/env';
-import { brandReplyOptions } from '@/shared/utils/branding';
+import { brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
 
 const STATE_FILE_NAME = 'verification-state.json';
 
@@ -91,25 +94,8 @@ export class VerificationService {
     }
   }
 
-  public buildRulesEmbed(): EmbedBuilder {
-    return new EmbedBuilder()
-      .setColor(DEDOS_BRAND.color)
-      .setTitle('📜 Reglas y verificación de Dedos Shop')
-      .setDescription(
-        [
-          'Para mantener una comunidad segura y divertida sigue estas indicaciones:',
-          '',
-          '1. Respeta a todos los miembros. Bromas son bienvenidas, el acoso no.',
-          '2. Usa los canales correctos para cada tema y evita el spam.',
-          '3. Los trades deben realizarse con middleman oficial o bajo tu propio riesgo.',
-          '4. Prohibido contenido NSFW, malware o enlaces sospechosos.',
-          '5. El staff puede sancionar a su discreción ante cualquier incumplimiento grave.',
-          '',
-          'Pulsa el botón **Verificarme** para obtener acceso completo al servidor.',
-        ].join('\n'),
-      )
-      .setFooter({ text: DEDOS_BRAND.footer.text, iconURL: DEDOS_BRAND.footer.iconURL })
-      .setTimestamp();
+  public buildRulesEmbed(): ReturnType<typeof buildVerificationRulesEmbed> {
+    return buildVerificationRulesEmbed();
   }
 
   public createComponents(): ActionRowBuilder<ButtonBuilder>[] {
@@ -199,7 +185,7 @@ export class VerificationService {
       return;
     }
 
-    const dmPayload = this.buildVerificationDm();
+    const dmPayload = this.buildVerificationDm(interaction.user.id);
 
     try {
       await interaction.user.send(dmPayload);
@@ -215,26 +201,22 @@ export class VerificationService {
     );
   }
 
-  private buildVerificationDm(): MessageCreateOptions {
-    const embed = new EmbedBuilder()
-      .setColor(DEDOS_BRAND.accentColor)
-      .setTitle('🎉 ¡Verificación completada!')
-      .setDescription(
-        [
-          'Gracias por verificarte en **Dedos Shop**.',
-          'Explora los canales desbloqueados, revisa las reglas fijadas y abre un ticket si necesitas ayuda.',
-          `Enlace útil: ${this.env.HELP_CENTER_URL ?? this.env.COMMUNITY_URL}`,
-        ].join('\n'),
-      )
-      .setFooter({ text: DEDOS_BRAND.footer.text, iconURL: DEDOS_BRAND.footer.iconURL })
-      .setTimestamp();
+  private buildVerificationDm(memberId: string): MessageCreateOptions {
+    const embed = buildVerificationCompletedEmbed({
+      helpCenterUrl: this.env.HELP_CENTER_URL,
+      communityUrl: this.env.COMMUNITY_URL,
+      memberId,
+    });
 
     const files = this.buildRulesAttachments();
 
-    return {
-      embeds: [embed],
-      files: files.length > 0 ? files : undefined,
-      content: this.env.COMMUNITY_URL,
-    };
+    return brandMessageOptions(
+      {
+        embeds: [embed],
+        files: files.length > 0 ? files : undefined,
+        content: this.env.COMMUNITY_URL ?? undefined,
+      },
+      { useHeroImage: true },
+    );
   }
 }
