@@ -11,8 +11,8 @@ import { env } from '@/shared/config/env';
 import {
   FEATURE_DISPLAY_NAMES,
   FEATURE_FLAG_ENV_KEYS,
-  getFeatureFlags,
   type FeatureFlagKey,
+  getFeatureFlags,
 } from '@/shared/config/runtime';
 import { clampEmbedField } from '@/shared/utils/discord.utils';
 

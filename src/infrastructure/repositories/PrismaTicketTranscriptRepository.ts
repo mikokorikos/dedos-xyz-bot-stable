@@ -17,8 +17,15 @@ import { logger } from '@/shared/logger/pino';
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-const getTicketTranscriptDelegate = (client: PrismaClientLike) =>
-  (client as unknown as { ticketTranscript: any }).ticketTranscript;
+interface TicketTranscriptDelegate {
+  create(args: unknown): Promise<TicketTranscriptRecord>;
+  findUnique(args: unknown): Promise<TicketTranscriptRecord | null>;
+  findFirst(args: unknown): Promise<TicketTranscriptRecord | null>;
+  update(args: unknown): Promise<TicketTranscriptRecord>;
+}
+
+const getTicketTranscriptDelegate = (client: PrismaClientLike): TicketTranscriptDelegate =>
+  (client as unknown as { ticketTranscript: TicketTranscriptDelegate }).ticketTranscript;
 
 interface TicketTranscriptRecord {
   id: string;
