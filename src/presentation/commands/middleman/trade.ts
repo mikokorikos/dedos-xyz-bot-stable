@@ -17,7 +17,9 @@ import { PrismaTicketRepository } from '@/infrastructure/repositories/PrismaTick
 import { PrismaTradeRepository } from '@/infrastructure/repositories/PrismaTradeRepository';
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import { ChannelDeletionError, TicketNotFoundError } from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
@@ -548,6 +550,16 @@ export const tradeCommand: Command = {
         return;
       }
 
+      if (!(await isFeatureEnabled('middleman'))) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildFeatureDisabledEmbed('middleman')],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
       if (normalized === 'finalize') {
         await handlePrefixFinalize(message);
         return;
@@ -568,11 +580,11 @@ export const tradeCommand: Command = {
         return;
       }
 
-        await message.reply({
-          embeds: [
-            embedFactory.warning({
-              title: 'Subcomando desconocido',
-              description: 'Utiliza `finalize`, `close`, `reset` o `delete` para administrar el trade.',
+      await message.reply({
+        embeds: [
+          embedFactory.warning({
+            title: 'Subcomando desconocido',
+            description: 'Utiliza `finalize`, `close`, `reset` o `delete` para administrar el trade.',
             }),
           ],
           allowedMentions: { repliedUser: false },
@@ -580,6 +592,16 @@ export const tradeCommand: Command = {
     },
   },
   async execute(interaction) {
+    if (!(await isFeatureEnabled('middleman'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('middleman')],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return;
+    }
+
     const channel = ensureTextChannel(interaction);
 
     if (!channel) {

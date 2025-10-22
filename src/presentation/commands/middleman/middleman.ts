@@ -9,6 +9,7 @@ import type {
   ChatInputCommandInteraction,
   InteractionReplyOptions,
   Message,
+  RepliableInteraction,
   TextBasedChannel,
   TextChannel,
 } from 'discord.js';
@@ -58,6 +59,7 @@ import {
   registerSelectMenuHandler,
 } from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import { buildClaimPromptMessage, buildTradeReadyMessage } from '@/presentation/middleman/messages';
 import {
   buildMiddlemanInfoEmbed,
@@ -67,6 +69,7 @@ import {
 } from '@/presentation/middleman/MiddlemanPanelBuilder';
 import { TradePanelRenderer } from '@/presentation/middleman/TradePanelRenderer';
 import { env } from '@/shared/config/env';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import {
   FinalizationPendingError,
@@ -168,6 +171,10 @@ export const middlemanCommand: Command = {
         return;
       }
 
+      if (!(await ensureMiddlemanEnabledMessage(message))) {
+        return;
+      }
+
       const channel = await ensureTextChannelFromMessage(
         message,
         'El panel solo puede publicarse en canales de texto del servidor.',
@@ -182,6 +189,10 @@ export const middlemanCommand: Command = {
     },
   },
   async execute(interaction) {
+    if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+      return;
+    }
+
     const channel = interaction.channel;
 
     if (!channel || channel.type !== ChannelType.GuildText) {
@@ -254,8 +265,51 @@ const ensureTextChannelFromMessage = async (
   return channel;
 };
 
+const replyMiddlemanDisabled = async (interaction: RepliableInteraction): Promise<void> => {
+  const payload = brandReplyOptions({
+    embeds: [buildFeatureDisabledEmbed('middleman')],
+    flags: MessageFlags.Ephemeral,
+  });
+
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp(payload);
+  } else {
+    await interaction.reply(payload);
+  }
+};
+
+const ensureMiddlemanEnabledInteraction = async (
+  interaction: RepliableInteraction,
+): Promise<boolean> => {
+  if (await isFeatureEnabled('middleman')) {
+    return true;
+  }
+
+  await replyMiddlemanDisabled(interaction);
+  return false;
+};
+
+const ensureMiddlemanEnabledMessage = async (message: Message): Promise<boolean> => {
+  if (await isFeatureEnabled('middleman')) {
+    return true;
+  }
+
+  await message.reply(
+    brandMessageOptions({
+      embeds: [buildFeatureDisabledEmbed('middleman')],
+      allowedMentions: { repliedUser: false },
+    }),
+  );
+
+  return false;
+};
+
 
 registerSelectMenuHandler(MIDDLEMAN_PANEL_MENU_ID, async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   const [value] = interaction.values;
 
   if (!value) {
@@ -342,6 +396,10 @@ const updateSendPermission = async (
   }
 };
 registerModalHandler('middleman-open', async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   await MiddlemanModal.handleSubmit(interaction, openUseCase, {
     async renderPanel(channel, ticketId) {
       await tradePanelRenderer.render(channel, ticketId);
@@ -350,6 +408,10 @@ registerModalHandler('middleman-open', async (interaction) => {
 });
 
 registerModalHandler(TradeModal.CUSTOM_ID, async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   const channel = interaction.channel;
 
   if (!channel || channel.type !== ChannelType.GuildText) {
@@ -459,6 +521,10 @@ registerFinalizationCancelButton(revokeFinalizationUseCase, ticketRepo);
 registerButtonHandler(
   REVIEW_BUTTON_CUSTOM_ID,
   async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   const cachedInvite = reviewInviteStore.get(interaction.message.id);
   const buttonMetadata = parseReviewButtonCustomId(interaction.customId);
 
@@ -530,6 +596,10 @@ registerButtonHandler(
   }
 
   registerModalHandler(modalCustomId, async (modalInteraction) => {
+    if (!(await ensureMiddlemanEnabledInteraction(modalInteraction))) {
+      return;
+    }
+
     try {
       await modalInteraction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -669,6 +739,10 @@ registerButtonHandler(
 );
 
 registerButtonHandler(TRADE_DATA_BUTTON_ID, async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   if (!interaction.channel || interaction.channel.type !== ChannelType.GuildText) {
     await interaction.reply(
       brandReplyOptions({
@@ -715,6 +789,10 @@ registerButtonHandler(TRADE_DATA_BUTTON_ID, async (interaction) => {
 });
 
 registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   const channel = interaction.channel;
 
   if (!channel || channel.type !== ChannelType.GuildText) {
@@ -843,6 +921,10 @@ registerButtonHandler(TRADE_CONFIRM_BUTTON_ID, async (interaction) => {
 });
 
 registerButtonHandler(TRADE_HELP_BUTTON_ID, async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   const channel = interaction.channel;
 
   if (!channel || channel.type !== ChannelType.GuildText) {
@@ -1017,6 +1099,10 @@ registerButtonHandler(TRADE_HELP_BUTTON_ID, async (interaction) => {
 });
 
 registerButtonHandler(MIDDLEMAN_CLAIM_BUTTON_ID, async (interaction) => {
+  if (!(await ensureMiddlemanEnabledInteraction(interaction))) {
+    return;
+  }
+
   const channel = interaction.channel;
 
   if (!channel || channel.type !== ChannelType.GuildText) {
