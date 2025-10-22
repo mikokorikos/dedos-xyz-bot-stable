@@ -121,13 +121,10 @@ export class ConfirmFinalizationUseCase {
       });
 
       await channel.send(
-        brandMessageOptions(
-          {
-            embeds: [completionEmbed],
-            allowedMentions: { users: mentionTargets },
-          },
-          { useHeroImage: false },
-        ),
+        brandMessageOptions({
+          embeds: [completionEmbed],
+          allowedMentions: { users: mentionTargets },
+        }),
       );
     }
 

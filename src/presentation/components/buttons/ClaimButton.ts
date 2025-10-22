@@ -8,6 +8,8 @@ import type { ClaimTradeUseCase } from '@/application/usecases/middleman/ClaimTr
 import type { ITicketRepository } from '@/domain/repositories/ITicketRepository';
 import { registerButtonHandler } from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import { logger } from '@/shared/logger/pino';
 import { brandEditReplyOptions, brandReplyOptions } from '@/shared/utils/branding';
@@ -28,6 +30,16 @@ export const registerClaimButton = (
               description: 'Este boton solo puede usarse dentro de un servidor.',
             }),
           ],
+          ephemeral: true,
+        }),
+      );
+      return;
+    }
+
+    if (!(await isFeatureEnabled('middleman'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('middleman')],
           ephemeral: true,
         }),
       );

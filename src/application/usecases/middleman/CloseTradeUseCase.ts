@@ -134,25 +134,22 @@ export class CloseTradeUseCase {
     }
 
     const reviewMessage = await channel.send(
-      brandMessageOptions(
-        {
-          embeds: [
-            this.embeds.success({
-              title: 'Ticket cerrado',
-              description:
-                'La transacción fue marcada como completada. Gracias por utilizar el sistema de middleman de Dedos.',
-            }),
-            this.embeds.reviewRequest({
-              middlemanTag: `<@${middlemanId}>`,
-              tradeSummary: 'Por favor comparte tu experiencia respondiendo al formulario de reseña.',
-            }),
-          ],
-          components: [
-            buildReviewButtonRow({ ticketId, middlemanId: middlemanId.toString() }),
-          ],
-        },
-        { useHeroImage: false },
-      ),
+      brandMessageOptions({
+        embeds: [
+          this.embeds.success({
+            title: 'Ticket cerrado',
+            description:
+              'La transacción fue marcada como completada. Gracias por utilizar el sistema de middleman de Dedos.',
+          }),
+          this.embeds.reviewRequest({
+            middlemanTag: `<@${middlemanId}>`,
+            tradeSummary: 'Por favor comparte tu experiencia respondiendo al formulario de reseña.',
+          }),
+        ],
+        components: [
+          buildReviewButtonRow({ ticketId, middlemanId: middlemanId.toString() }),
+        ],
+      }),
     );
 
     reviewInviteStore.set(reviewMessage.id, { ticketId, middlemanId: middlemanId.toString() });

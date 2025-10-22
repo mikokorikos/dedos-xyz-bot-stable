@@ -5,6 +5,7 @@
 import { Events, type Message, type PartialMessage } from 'discord.js';
 
 import type { EventDescriptor } from '@/presentation/events/types';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { messageCountTracker } from '@/shared/services/messageCountTracker';
 
 const resolveAuthorId = (message: Message | PartialMessage): string | null => {
@@ -24,6 +25,10 @@ export const messageDeleteEvent: EventDescriptor<typeof Events.MessageDelete> = 
   once: false,
   async execute(message: Message | PartialMessage): Promise<void> {
     if (!message.inGuild()) {
+      return;
+    }
+
+    if (!(await isFeatureEnabled('counting'))) {
       return;
     }
 

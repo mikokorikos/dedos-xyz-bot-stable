@@ -28,6 +28,7 @@ import { MiddlemanModal } from '@/presentation/components/modals/MiddlemanModal'
 import { TicketCloseReasonModal } from '@/presentation/components/modals/TicketCloseReasonModal';
 import { registerButtonHandler, registerModalHandler, registerSelectMenuHandler } from '@/presentation/components/registry';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import {
   buildTicketClosureConfirmationEmbed,
   buildTicketClosureDMEmbed,
@@ -50,6 +51,7 @@ import {
   TICKET_PANEL_MENU_ID,
 } from '@/presentation/tickets/TicketPanelBuilder';
 import { env } from '@/shared/config/env';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import { ValidationFailedError } from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
@@ -476,7 +478,27 @@ registerSelectMenuHandler(TICKET_PANEL_MENU_ID, async (interaction) => {
   try {
     const selection = resolveTicketSelection(interaction.values[0] ?? '');
 
+    if (!(await isFeatureEnabled('tickets'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('tickets')],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return;
+    }
+
     if (selection.type === TicketType.MM) {
+      if (!(await isFeatureEnabled('middleman'))) {
+        await interaction.reply(
+          brandReplyOptions({
+            embeds: [buildFeatureDisabledEmbed('middleman')],
+            flags: MessageFlags.Ephemeral,
+          }),
+        );
+        return;
+      }
+
       await interaction.showModal(MiddlemanModal.build());
       return;
     }
@@ -532,6 +554,16 @@ registerButtonHandler(TICKET_CLOSE_BUTTON_ID, async (interaction) => {
             description: 'Este botón solo puede utilizarse dentro de un ticket de soporte.',
           }),
         ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (!(await isFeatureEnabled('tickets'))) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('tickets')],
         flags: MessageFlags.Ephemeral,
       }),
     );
@@ -627,6 +659,16 @@ registerModalHandler(TicketCloseReasonModal.CUSTOM_ID, async (interaction) => {
     return;
   }
 
+  if (!(await isFeatureEnabled('tickets'))) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('tickets')],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
   const reason = TicketCloseReasonModal.extractReason(interaction);
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -708,6 +750,26 @@ registerButtonHandler(
             description: 'El servicio seleccionado ya no está activo.',
           }),
         ],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (!(await isFeatureEnabled('tickets'))) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('tickets')],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
+  if (option.type === TicketType.MM && !(await isFeatureEnabled('middleman'))) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('middleman')],
         flags: MessageFlags.Ephemeral,
       }),
     );
@@ -805,6 +867,16 @@ registerButtonHandler(
 );
 
 const publishTicketPanel = async (interaction: ChatInputCommandInteraction): Promise<void> => {
+  if (!(await isFeatureEnabled('tickets'))) {
+    await interaction.reply(
+      brandReplyOptions({
+        embeds: [buildFeatureDisabledEmbed('tickets')],
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    return;
+  }
+
   const panel = buildTicketPanelMessage();
 
   await interaction.reply(
@@ -834,6 +906,16 @@ export const ticketCloseCommand: Command = {
   async execute(interaction) {
     const context = await ensureTicketStaffContextFromInteraction(interaction);
     if (!context) {
+      return;
+    }
+
+    if (!(await isFeatureEnabled('tickets'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('tickets')],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
       return;
     }
 
@@ -929,6 +1011,16 @@ export const ticketTranscriptCommand: Command = {
   async execute(interaction) {
     const context = await ensureTicketStaffContextFromInteraction(interaction);
     if (!context) {
+      return;
+    }
+
+    if (!(await isFeatureEnabled('tickets'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('tickets')],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
       return;
     }
 
@@ -1073,6 +1165,16 @@ export const ticketTranscriptCommand: Command = {
       }
 
       if (subcommand === 'close' || subcommand === 'cerrar') {
+        if (!(await isFeatureEnabled('tickets'))) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [buildFeatureDisabledEmbed('tickets')],
+              allowedMentions: { repliedUser: false },
+            }),
+          );
+          return;
+        }
+
         const context = await ensureTicketStaffContextFromMessage(message);
         if (!context) {
           return;
@@ -1143,6 +1245,16 @@ export const ticketTranscriptCommand: Command = {
       }
 
       if (!isTranscriptKeyword(subcommand)) {
+        return;
+      }
+
+      if (!(await isFeatureEnabled('tickets'))) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildFeatureDisabledEmbed('tickets')],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
         return;
       }
 
@@ -1316,6 +1428,16 @@ export const ticketsPanelCommand: Command = {
                 description: 'El panel solo puede publicarse en canales de texto del servidor.',
               }),
             ],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      if (!(await isFeatureEnabled('tickets'))) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildFeatureDisabledEmbed('tickets')],
             allowedMentions: { repliedUser: false },
           }),
         );
