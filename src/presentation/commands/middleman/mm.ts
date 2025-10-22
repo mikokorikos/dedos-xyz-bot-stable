@@ -19,12 +19,15 @@ import { PrismaMemberStatsRepository } from '@/infrastructure/repositories/Prism
 import { PrismaMiddlemanRepository } from '@/infrastructure/repositories/PrismaMiddlemanRepository';
 import type { Command } from '@/presentation/commands/types';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import { env } from '@/shared/config/env';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import { UnauthorizedActionError } from '@/shared/errors/domain.errors';
 import { logger } from '@/shared/logger/pino';
 import {
   brandEditReplyOptions,
+  brandMessageOptions,
   brandReplyOptions,
 } from '@/shared/utils/branding';
 
@@ -839,6 +842,16 @@ export const middlemanDirectoryCommand: Command = {
         return;
       }
 
+      if (!(await isFeatureEnabled('middleman'))) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildFeatureDisabledEmbed('middleman')],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
       if (subcommand === 'add') {
         await handlePrefixDirectoryAdd(message, rest);
         return;
@@ -871,6 +884,16 @@ export const middlemanDirectoryCommand: Command = {
     },
   },
   async execute(interaction) {
+    if (!(await isFeatureEnabled('middleman'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('middleman')],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return;
+    }
+
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const subcommand = interaction.options.getSubcommand();
