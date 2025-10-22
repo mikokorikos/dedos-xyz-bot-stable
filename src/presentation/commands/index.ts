@@ -2,6 +2,7 @@
 // RUTA: src/presentation/commands/index.ts
 // ============================================================================
 
+import { configCommand } from '@/presentation/commands/admin/config';
 import {
   commandRegistry,
   getRegisteredCommands,
@@ -28,6 +29,7 @@ import { verbalWarnCommand } from '@/presentation/commands/warns/verbal-warn';
 import { warnCommand } from '@/presentation/commands/warns/warn';
 
 const commands: Command[] = [
+  configCommand,
   pingCommand,
   helpCommand,
   rulesCommand,

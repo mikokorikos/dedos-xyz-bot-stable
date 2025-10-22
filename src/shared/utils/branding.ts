@@ -130,9 +130,9 @@ export const applyDedosBrand = <T extends EmbedBuilder>(
     embed.setTimestamp(decorations.timestamp ?? new Date());
   }
 
-  const needsHeroImage = decorations.useHeroImage === true;
+  const shouldUseHeroImage = decorations.useHeroImage !== false;
   const heroImageUrl = resolveHeroImageSource();
-  if (needsHeroImage && heroImageUrl && !embed.data.image) {
+  if (shouldUseHeroImage && heroImageUrl && !embed.data.image) {
     embed.setImage(heroImageUrl);
   }
 
@@ -193,7 +193,8 @@ const withBranding = <T extends BrandableOptions>(
 
   const embeds = decorateEmbeds(options.embeds, decorations);
   const heroUrl = resolveHeroImageSource();
-  const needsHeroImage = Boolean(heroUrl) && (decorations.useHeroImage === true || hasHeroImage(embeds, heroUrl));
+  const shouldUseHeroImage = decorations.useHeroImage !== false;
+  const needsHeroImage = Boolean(heroUrl) && (shouldUseHeroImage || hasHeroImage(embeds, heroUrl));
   const files = needsHeroImage ? ensureHeroImageIncluded(options.files) : options.files;
 
   return {

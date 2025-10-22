@@ -20,7 +20,10 @@ interface DedosBrandConfig {
 }
 
 const heroImageEnv = process.env['DEDOS_HERO_IMAGE_URL']?.trim();
-const DEFAULT_HERO_IMAGE_SOURCE = heroImageEnv && heroImageEnv.length > 0 ? heroImageEnv : null;
+const DEFAULT_HERO_IMAGE_SOURCE =
+  heroImageEnv && heroImageEnv.length > 0
+    ? heroImageEnv
+    : 'assets/branding/dedosgif.gif';
 
 const brandIconEnv = process.env['DEDOS_BRAND_ICON_URL']?.trim();
 const DEFAULT_ICON_URL =

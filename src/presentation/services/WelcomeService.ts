@@ -7,6 +7,7 @@ import type { Logger } from 'pino';
 
 import { DEDOS_BRAND, resolveDedosAsset } from '@/shared/config/branding';
 import type { Env } from '@/shared/config/env';
+import { brandMessageOptions } from '@/shared/utils/branding';
 import { RateLimitedQueue } from '@/shared/utils/rate-limited-queue';
 
 interface WelcomeServiceOptions {
@@ -126,11 +127,13 @@ export class WelcomeService {
       const attachments = this.buildAttachments();
       const files = attachments.length > 0 ? attachments : undefined;
 
-      await member.send({
-        embeds: [embed],
-        files,
-        content: this.env.COMMUNITY_URL,
-      });
+      await member.send(
+        brandMessageOptions({
+          embeds: [embed],
+          files,
+          content: this.env.COMMUNITY_URL,
+        }),
+      );
 
       this.logger.info({ userId: member.id }, '[WELCOME] DM de bienvenida enviado.');
     } catch (error) {

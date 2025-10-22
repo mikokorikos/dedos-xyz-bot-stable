@@ -15,13 +15,11 @@ import { TicketType } from '@/domain/entities/types';
 import { fxService } from '@/presentation/services/community';
 import { env } from '@/shared/config/env';
 import { ValidationFailedError } from '@/shared/errors/domain.errors';
+import { applyDedosBrand } from '@/shared/utils/branding';
 
 export const TICKET_PANEL_MENU_ID = env.TICKET_SELECT_MENU_ID ?? 'dedos:ticket:menu';
 export const TICKET_OPEN_BUTTON_PREFIX = env.TICKET_OPEN_BUTTON_PREFIX ?? 'dedos:ticket:open:';
 export const TICKET_CLOSE_BUTTON_ID = env.TICKET_CLOSE_BUTTON_ID ?? 'dedos:ticket:close';
-
-const SHOP_GIF_URL =
-  'https://message.style/cdn/images/b6b34048e6b8e4f2d6931af81a6935dbeb06d1d1a619dcf353733ab75bbcca8c.gif';
 
 const SHOP_PAYMENT_METHODS_FIELD = {
   name: 'Metodos de pago:',
@@ -46,7 +44,7 @@ interface ShopTicketOption {
   readonly embedBuilder: () => EmbedBuilder;
 }
 
-const applyBrand = (embed: EmbedBuilder, options: { includeBanner?: boolean } = {}): EmbedBuilder => {
+const applyBrand = (embed: EmbedBuilder): EmbedBuilder => {
   const icon = env.TICKET_BRAND_ICON_URL;
 
   embed
@@ -57,15 +55,11 @@ const applyBrand = (embed: EmbedBuilder, options: { includeBanner?: boolean } = 
       iconURL: icon,
     });
 
-  if (options.includeBanner ?? true) {
-    embed.setImage(SHOP_GIF_URL);
-  }
-
   if (icon) {
     embed.setThumbnail(icon);
   }
 
-  return embed;
+  return applyDedosBrand(embed);
 };
 
 const formatTicketNumber = (ticketId: number): string => ticketId.toString().padStart(4, '0');
@@ -280,7 +274,6 @@ export const buildTicketIntroMessage = (
       .setTitle(`Ticket #${ticketNumber} • ${option.menuLabel}`)
       .setDescription(lines.join('\n'))
       .setTimestamp(),
-    { includeBanner: false },
   );
 
   const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
