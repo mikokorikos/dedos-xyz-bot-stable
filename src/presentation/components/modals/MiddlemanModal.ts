@@ -14,7 +14,9 @@ import {
 
 import type { OpenMiddlemanChannelUseCase } from '@/application/usecases/middleman/OpenMiddlemanChannelUseCase';
 import { embedFactory } from '@/presentation/embeds/EmbedFactory';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import { env } from '@/shared/config/env';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { mapErrorToDiscordResponse } from '@/shared/errors/discord-error-mapper';
 import { logger } from '@/shared/logger/pino';
 import { brandEditReplyOptions, brandReplyOptions } from '@/shared/utils/branding';
@@ -64,6 +66,16 @@ export class MiddlemanModal {
                 'Este formulario solo puede utilizarse dentro de un servidor de Discord.',
             }),
           ],
+          flags: MessageFlags.Ephemeral,
+        }),
+      );
+      return;
+    }
+
+    if (!(await isFeatureEnabled('middleman'))) {
+      await interaction.reply(
+        brandReplyOptions({
+          embeds: [buildFeatureDisabledEmbed('middleman')],
           flags: MessageFlags.Ephemeral,
         }),
       );
