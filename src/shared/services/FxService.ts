@@ -96,16 +96,16 @@ export class FxService {
   public buildInfoField(): { name: string; value: string } {
     const rateText = this.rate.toFixed(4);
     const detail = this.usingFallback
-      ? 'Usamos una tasa predeterminada cuando no hay actualización automática disponible.'
-      : 'La tasa se actualiza automáticamente cada pocas horas usando open.er-api.com.';
+      ? 'Usamos una tasa predeterminada cuando no hay actualizacion automatica disponible.'
+      : 'La tasa se actualiza de forma automatica cada 6 horas desde open.er-api.com.';
     const lastUpdateLine = this.lastUpdated
-      ? `Última actualización: ${this.lastUpdated.toISOString()}.`
-      : 'Última actualización: no disponible.';
+      ? `Ultima actualizacion: ${this.lastUpdated.toISOString()}.`
+      : 'Ultima actualizacion: no disponible (tasa predeterminada).';
 
     return {
-      name: 'Conversión MXN → USD',
+      name: 'Como calculamos el USD',
       value: [
-        `Tasa actual: **${rateText}**.`,
+        `Conversion MXN -> USD = ${rateText}.`,
         detail,
         lastUpdateLine,
       ].join('\n'),

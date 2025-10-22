@@ -46,28 +46,34 @@ export const messageCreateEvent: EventDescriptor<typeof Events.MessageCreate> = 
       }
     }
 
-    try {
-      const transcriptMessage = buildTranscriptMessageFromDiscordMessage(message);
+    const ticketsEnabled = await isFeatureEnabled('tickets');
 
-      void recordTicketTranscriptMessageUseCase
-        .execute({
-          channelId: message.channelId,
-          message: transcriptMessage,
-        })
-        .catch((error) => {
-          logger.error(
-            { err: error, channelId: message.channelId, messageId: message.id },
-            'No se pudo registrar el mensaje dentro de la transcripción del ticket.',
-          );
-        });
-    } catch (error) {
-      logger.warn(
-        { err: error, channelId: message.channelId, messageId: message.id },
-        'No se pudo convertir el mensaje para la transcripción.',
-      );
+    if (ticketsEnabled) {
+      try {
+        const transcriptMessage = buildTranscriptMessageFromDiscordMessage(message);
+
+        void recordTicketTranscriptMessageUseCase
+          .execute({
+            channelId: message.channelId,
+            message: transcriptMessage,
+          })
+          .catch((error) => {
+            logger.error(
+              { err: error, channelId: message.channelId, messageId: message.id },
+              'No se pudo registrar el mensaje dentro de la transcripción del ticket.',
+            );
+          });
+      } catch (error) {
+        logger.warn(
+          { err: error, channelId: message.channelId, messageId: message.id },
+          'No se pudo convertir el mensaje para la transcripción.',
+        );
+      }
     }
 
-    if (!message.author.bot && (await isFeatureEnabled('counting'))) {
+    const countingEnabled = !message.author.bot && (await isFeatureEnabled('counting'));
+
+    if (countingEnabled) {
       messageCountTracker.recordMessage({
         messageId: message.id,
         guildId: message.guildId,

@@ -89,6 +89,10 @@ export const EnvSchema = z.object({
   DATABASE_URL: optionalUrl,
   DB_AUTO_APPLY_SCHEMA: booleanLike.default(true),
   DB_ACCEPT_DATA_LOSS: booleanLike.default(false),
+  FEATURE_COUNTING_ENABLED: booleanLike.default(true),
+  FEATURE_TICKETS_ENABLED: booleanLike.default(true),
+  FEATURE_MIDDLEMAN_ENABLED: booleanLike.default(true),
+  FEATURE_VERIFICATION_ENABLED: booleanLike.default(true),
   ADMIN_ROLE_ID: z
     .string()
     .regex(/^\d{17,20}$/u, 'ADMIN_ROLE_ID debe ser un snowflake de Discord')
@@ -234,5 +238,6 @@ export type Env = RawEnv & { DATABASE_URL: string };
 
 export const env: Env = {
   ...parsedEnv,
+  WELCOME_GIF_PATH: parsedEnv.WELCOME_GIF_PATH ?? 'assets/embeds/dedosgif.gif',
   DATABASE_URL: resolvedDatabaseUrl,
 };

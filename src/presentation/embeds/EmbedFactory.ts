@@ -339,7 +339,7 @@ export class EmbedFactory {
     return applyDedosBrand(embed, {
       color: options.color,
       timestamp: options.timestamp,
-      useHeroImage: options.heroImage ?? false,
+      useHeroImage: options.heroImage !== false,
     });
   }
 }
