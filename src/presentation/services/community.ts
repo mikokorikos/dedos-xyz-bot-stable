@@ -3,9 +3,11 @@
 // =============================================================================
 
 import { registerButtonHandler, registerSelectMenuHandler } from '@/presentation/components/registry';
+import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import { HelpMenuService } from '@/presentation/verification/HelpMenuService';
 import { VerificationService } from '@/presentation/verification/VerificationService';
 import { env } from '@/shared/config/env';
+import { isFeatureEnabled } from '@/shared/config/runtime';
 import { logger } from '@/shared/logger/pino';
 import { FxService } from '@/shared/services/FxService';
 
@@ -26,10 +28,26 @@ void verificationService.init();
 export const helpMenuService = new HelpMenuService({ env, logger, verificationService });
 
 registerButtonHandler(verificationService.buttonCustomId, async (interaction) => {
+  if (!(await isFeatureEnabled('verification'))) {
+    await interaction.reply({
+      embeds: [buildFeatureDisabledEmbed('verification')],
+      ephemeral: true,
+    });
+    return;
+  }
+
   await verificationService.verify(interaction);
 });
 
 registerSelectMenuHandler(helpMenuService.customId, async (interaction) => {
+  if (!(await isFeatureEnabled('verification'))) {
+    await interaction.reply({
+      embeds: [buildFeatureDisabledEmbed('verification')],
+      ephemeral: true,
+    });
+    return;
+  }
+
   await helpMenuService.handleInteraction(interaction);
 });
 

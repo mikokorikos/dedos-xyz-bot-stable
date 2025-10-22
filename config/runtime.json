@@ -1,3 +1,9 @@
 {
-  "reviewsChannelId": null
+  "reviewsChannelId": null,
+  "features": {
+    "counting": true,
+    "tickets": true,
+    "middleman": true,
+    "verification": true
+  }
 }
