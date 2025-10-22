@@ -15,7 +15,7 @@ import { hasPermissions } from '@/shared/utils/permissions';
 const buildRulesPayload = () => {
   const embed = verificationService.buildRulesEmbed();
   const attachments = verificationService.buildRulesAttachments();
-  const components = [helpMenuService.buildMenuRow(), ...verificationService.createComponents()];
+  const components = [helpMenuService.buildMenuRow()];
 
   return {
     embeds: [embed],
@@ -83,6 +83,11 @@ export const rulesCommand: Command = {
       try {
         const sent = await channel.send(brandMessageOptions(payload));
         await verificationService.persistMessageId(sent.id);
+        try {
+          await sent.react('✅');
+        } catch (error) {
+          logger.warn({ err: error, channelId: sent.channelId }, '[VERIFY] No se pudo añadir la reacción de verificación.');
+        }
         await message.reply(
           brandMessageOptions({
             content: `Panel publicado en <#${channel.id}>.`,
@@ -141,6 +146,11 @@ export const rulesCommand: Command = {
       const textChannel = channel as TextChannel;
       const sent = await textChannel.send(brandMessageOptions(payload));
       await verificationService.persistMessageId(sent.id);
+      try {
+        await sent.react('✅');
+      } catch (error) {
+        logger.warn({ err: error, channelId: sent.channelId }, '[VERIFY] No se pudo añadir la reacción de verificación.');
+      }
       await interaction.reply(
         brandReplyOptions({
           content: `Panel publicado correctamente en <#${channel.id}>.`,

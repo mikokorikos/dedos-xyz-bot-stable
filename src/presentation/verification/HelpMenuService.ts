@@ -17,6 +17,12 @@ import {
   buildVerificationTicketsHelpEmbed,
 } from '@/presentation/embeds/verificationEmbeds';
 import type { Env } from '@/shared/config/env';
+import {
+  FEATURE_DISPLAY_NAMES,
+  FEATURE_FLAG_ENV_KEYS,
+  getFeatureFlags,
+  type FeatureFlagKey,
+} from '@/shared/config/runtime';
 import { brandReplyOptions } from '@/shared/utils/branding';
 
 import type { VerificationService } from './VerificationService';
@@ -65,7 +71,7 @@ export class HelpMenuService {
       return;
     }
 
-    const response = this.buildResponse(option, interaction);
+    const response = await this.buildResponse(option, interaction);
     if (!response) {
       this.logger.warn({ option }, '[HELP] Opción de menú no reconocida.');
       await interaction.reply(
@@ -88,7 +94,10 @@ export class HelpMenuService {
     ];
   }
 
-  private buildResponse(option: string, interaction: StringSelectMenuInteraction): InteractionReplyOptions | null {
+  private async buildResponse(
+    option: string,
+    interaction: StringSelectMenuInteraction,
+  ): Promise<InteractionReplyOptions | null> {
     switch (option) {
       case 'events':
         return this.buildEventsHelp();
@@ -116,8 +125,17 @@ export class HelpMenuService {
     return brandReplyOptions({ embeds: [embed], ephemeral: true });
   }
 
-  private buildServicesHelp(): InteractionReplyOptions {
-    const embed = buildVerificationServicesHelpEmbed();
+  private async buildServicesHelp(): Promise<InteractionReplyOptions> {
+    const features = await getFeatureFlags();
+    const statusLines = Object.entries(features).map(([key, value]) => {
+      const featureKey = key as FeatureFlagKey;
+      const label = FEATURE_DISPLAY_NAMES[featureKey];
+      const envKey = FEATURE_FLAG_ENV_KEYS[featureKey];
+      const prefix = value ? '✅' : '🚫';
+      return `${prefix} ${label} (env: ${envKey})`;
+    });
+
+    const embed = buildVerificationServicesHelpEmbed(statusLines);
 
     return brandReplyOptions({ embeds: [embed], ephemeral: true });
   }

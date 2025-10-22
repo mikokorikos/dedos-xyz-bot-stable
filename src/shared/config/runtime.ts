@@ -5,6 +5,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { env } from '@/shared/config/env';
+
 const RUNTIME_CONFIG_PATH = path.resolve(process.cwd(), 'config/runtime.json');
 
 export const FEATURE_FLAGS = ['counting', 'tickets', 'middleman', 'verification'] as const;
@@ -19,11 +21,18 @@ export const FEATURE_DISPLAY_NAMES: Record<FeatureFlagKey, string> = {
   verification: 'Verificación de miembros',
 };
 
+export const FEATURE_FLAG_ENV_KEYS: Record<FeatureFlagKey, string> = {
+  counting: 'FEATURE_COUNTING_ENABLED',
+  tickets: 'FEATURE_TICKETS_ENABLED',
+  middleman: 'FEATURE_MIDDLEMAN_ENABLED',
+  verification: 'FEATURE_VERIFICATION_ENABLED',
+};
+
 const DEFAULT_FEATURE_FLAGS: FeatureFlagConfig = {
-  counting: true,
-  tickets: true,
-  middleman: true,
-  verification: true,
+  counting: env.FEATURE_COUNTING_ENABLED,
+  tickets: env.FEATURE_TICKETS_ENABLED,
+  middleman: env.FEATURE_MIDDLEMAN_ENABLED,
+  verification: env.FEATURE_VERIFICATION_ENABLED,
 };
 
 export interface RuntimeConfig {

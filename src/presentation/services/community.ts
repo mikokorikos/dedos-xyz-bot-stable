@@ -2,7 +2,7 @@
 // RUTA: src/presentation/services/community.ts
 // =============================================================================
 
-import { registerButtonHandler, registerSelectMenuHandler } from '@/presentation/components/registry';
+import { registerSelectMenuHandler } from '@/presentation/components/registry';
 import { buildFeatureDisabledEmbed } from '@/presentation/embeds/featureEmbeds';
 import { HelpMenuService } from '@/presentation/verification/HelpMenuService';
 import { VerificationService } from '@/presentation/verification/VerificationService';
@@ -27,20 +27,6 @@ export const verificationService = new VerificationService({ env, logger });
 void verificationService.init();
 
 export const helpMenuService = new HelpMenuService({ env, logger, verificationService });
-
-registerButtonHandler(verificationService.buttonCustomId, async (interaction) => {
-  if (!(await isFeatureEnabled('verification'))) {
-    await interaction.reply(
-      brandReplyOptions({
-        embeds: [buildFeatureDisabledEmbed('verification')],
-        ephemeral: true,
-      }),
-    );
-    return;
-  }
-
-  await verificationService.verify(interaction);
-});
 
 registerSelectMenuHandler(helpMenuService.customId, async (interaction) => {
   if (!(await isFeatureEnabled('verification'))) {

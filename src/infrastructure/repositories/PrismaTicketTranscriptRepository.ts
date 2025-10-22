@@ -13,10 +13,91 @@ import type {
   CreateTicketTranscriptData,
   ITicketTranscriptRepository,
 } from '@/domain/repositories/ITicketTranscriptRepository';
+import { logger } from '@/shared/logger/pino';
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-type TicketTranscriptRecord = Prisma.TicketTranscriptGetPayload<Prisma.TicketTranscriptDefaultArgs>;
+const getTicketTranscriptDelegate = (client: PrismaClientLike) =>
+  (client as unknown as { ticketTranscript: any }).ticketTranscript;
+
+interface TicketTranscriptRecord {
+  id: string;
+  ticketId: number;
+  channelId: bigint;
+  createdAt: Date;
+  updatedAt: Date;
+  messages: Prisma.JsonValue;
+}
+
+
+const TRANSCRIPT_TABLE = 'ticket_transcripts';
+let warnedMissingTranscriptTable = false;
+
+const extractErrorMessage = (error: unknown): string => {
+  if (!error) {
+    return '';
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return error.message ?? '';
+  }
+
+  const candidate = (error as { message?: unknown }).message;
+  return typeof candidate === 'string' ? candidate : '';
+};
+
+const getPrismaErrorCode = (error: unknown): string | null => {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+};
+
+const isMissingTranscriptTableError = (error: unknown): boolean => {
+  const code = getPrismaErrorCode(error);
+  if (code === 'P2021' || code === 'P2010') {
+    return true;
+  }
+
+  const message = extractErrorMessage(error).toLowerCase();
+  if (!message) {
+    return false;
+  }
+
+  const mentionsTable =
+    message.includes(`\`${TRANSCRIPT_TABLE}\``) ||
+    message.includes(`'${TRANSCRIPT_TABLE}'`) ||
+    message.includes(TRANSCRIPT_TABLE);
+
+  if (!mentionsTable) {
+    return false;
+  }
+
+  return (
+    message.includes('does not exist') ||
+    message.includes('unknown') ||
+    message.includes('no such table') ||
+    message.includes('1146')
+  );
+};
+
+const handleMissingTranscriptTable = <T>(error: unknown, fallback: T): T => {
+  if (isMissingTranscriptTableError(error)) {
+    if (!warnedMissingTranscriptTable) {
+      warnedMissingTranscriptTable = true;
+      logger.warn(
+        { err: error },
+        '[DB] La tabla "ticket_transcripts" no existe. Las transcripciones de tickets permanecerán deshabilitadas.',
+      );
+    }
+
+    return fallback;
+  }
+
+  throw error;
+};
 
 const serializeMessages = (
   messages: readonly TicketTranscriptMessage[],
@@ -96,7 +177,7 @@ export class PrismaTicketTranscriptRepository implements ITicketTranscriptReposi
   public constructor(private readonly prisma: PrismaClientLike) {}
 
   public async create(data: CreateTicketTranscriptData): Promise<TicketTranscript> {
-    const record = await this.prisma.ticketTranscript.create({
+    const record = await getTicketTranscriptDelegate(this.prisma).create({
       data: {
         id: data.transcriptId,
         ticketId: data.ticketId,
@@ -109,38 +190,54 @@ export class PrismaTicketTranscriptRepository implements ITicketTranscriptReposi
   }
 
   public async findByTicketId(ticketId: number): Promise<TicketTranscript | null> {
-    const record = await this.prisma.ticketTranscript.findUnique({
-      where: { ticketId },
-    });
+    try {
+      const record = await getTicketTranscriptDelegate(this.prisma).findUnique({
+        where: { ticketId },
+      });
 
-    return record ? this.toDomain(record) : null;
+      return record ? this.toDomain(record) : null;
+    } catch (error) {
+      return handleMissingTranscriptTable(error, null);
+    }
   }
 
   public async findByChannelId(channelId: bigint): Promise<TicketTranscript | null> {
-    const record = await this.prisma.ticketTranscript.findFirst({
-      where: { channelId },
-    });
+    try {
+      const record = await getTicketTranscriptDelegate(this.prisma).findFirst({
+        where: { channelId },
+      });
 
-    return record ? this.toDomain(record) : null;
+      return record ? this.toDomain(record) : null;
+    } catch (error) {
+      return handleMissingTranscriptTable(error, null);
+    }
   }
 
   public async findByTranscriptId(transcriptId: string): Promise<TicketTranscript | null> {
-    const record = await this.prisma.ticketTranscript.findUnique({
-      where: { id: transcriptId },
-    });
+    try {
+      const record = await getTicketTranscriptDelegate(this.prisma).findUnique({
+        where: { id: transcriptId },
+      });
 
-    return record ? this.toDomain(record) : null;
+      return record ? this.toDomain(record) : null;
+    } catch (error) {
+      return handleMissingTranscriptTable(error, null);
+    }
   }
 
   public async save(transcript: TicketTranscript): Promise<void> {
     const primitives = transcript.toPrimitives();
 
-    await this.prisma.ticketTranscript.update({
-      where: { id: primitives.id },
-      data: {
-        messages: toJsonArray(primitives.messages),
-      },
-    });
+    try {
+      await getTicketTranscriptDelegate(this.prisma).update({
+        where: { id: primitives.id },
+        data: {
+          messages: toJsonArray(primitives.messages),
+        },
+      });
+    } catch (error) {
+      handleMissingTranscriptTable(error, undefined);
+    }
   }
 
   private toDomain(record: TicketTranscriptRecord): TicketTranscript {

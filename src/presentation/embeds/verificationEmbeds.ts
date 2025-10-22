@@ -14,7 +14,7 @@ export const buildVerificationRulesEmbed = (): ReturnType<typeof embedFactory.in
   embedFactory.info({
     title: '🎮 Reglas del Servidor',
     description:
-      'Antes de participar en nuestra comunidad, asegúrate de leer cuidadosamente estas reglas. El cumplimiento garantiza una convivencia sana y una experiencia divertida para todos. ✅',
+      'Antes de participar en nuestra comunidad, asegúrate de leer cuidadosamente estas reglas. El cumplimiento garantiza una convivencia sana y una experiencia divertida para todos. ✅\n\nReacciona con la ✅ en este mensaje para verificarte y desbloquear todos los canales.',
     fields: [
       {
         name: '📋 Reglas Generales',
@@ -90,18 +90,27 @@ export const buildVerificationHelpEmbed = (link: string): ReturnType<typeof embe
     ].join('\n'),
   });
 
-export const buildVerificationServicesHelpEmbed = (): ReturnType<typeof embedFactory.info> =>
-  embedFactory.info({
+export const buildVerificationServicesHelpEmbed = (
+  featureStatusLines?: ReadonlyArray<string>,
+): ReturnType<typeof embedFactory.info> => {
+  const descriptionParts = [
+    'Estas son las principales actividades dentro del servidor:',
+    '',
+    '- Participa en eventos y gana recompensas por tu actividad.',
+    '- Usa nuestro middleman oficial sin propinas obligatorias.',
+    '- Compra en la tienda con los mejores precios del mercado.',
+    '- Convive, tradea y aporta sugerencias para seguir creciendo.',
+  ];
+
+  if (featureStatusLines && featureStatusLines.length > 0) {
+    descriptionParts.push('', 'Estado de las funciones:', ...featureStatusLines.map((line) => `• ${line}`));
+  }
+
+  return embedFactory.info({
     title: '¿Qué puedo hacer en el servidor?',
-    description: [
-      'Estas son las principales actividades dentro del servidor:',
-      '',
-      '- Participa en eventos y gana recompensas por tu actividad.',
-      '- Usa nuestro middleman oficial sin propinas obligatorias.',
-      '- Compra en la tienda con los mejores precios del mercado.',
-      '- Convive, tradea y aporta sugerencias para seguir creciendo.',
-    ].join('\n'),
+    description: descriptionParts.join('\n'),
   });
+};
 
 export const buildVerificationTicketsHelpEmbed = (): ReturnType<typeof embedFactory.info> =>
   embedFactory.info({

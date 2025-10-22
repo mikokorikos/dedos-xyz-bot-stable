@@ -6,13 +6,12 @@ import { promises as fs } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import {
-  ActionRowBuilder,
   AttachmentBuilder,
-  ButtonBuilder,
-  type ButtonInteraction,
-  ButtonStyle,
   type GuildMember,
   type MessageCreateOptions,
+  type MessageReaction,
+  type PartialMessageReaction,
+  type User,
 } from 'discord.js';
 import type { Logger } from 'pino';
 
@@ -22,7 +21,7 @@ import {
 } from '@/presentation/embeds/verificationEmbeds';
 import { resolveDedosAsset } from '@/shared/config/branding';
 import type { Env } from '@/shared/config/env';
-import { brandMessageOptions, brandReplyOptions } from '@/shared/utils/branding';
+import { brandMessageOptions } from '@/shared/utils/branding';
 
 const STATE_FILE_NAME = 'verification-state.json';
 
@@ -53,10 +52,6 @@ export class VerificationService {
     this.logger = options.logger;
     this.stateFilePath = resolve(process.cwd(), 'config', STATE_FILE_NAME);
     this.state = { verificationMessageId: options.env.VERIFICATION_MESSAGE_ID ?? null };
-  }
-
-  public get buttonCustomId(): string {
-    return this.env.VERIFY_BUTTON_CUSTOM_ID;
   }
 
   public get verificationMessageId(): string | null {
@@ -98,15 +93,6 @@ export class VerificationService {
     return buildVerificationRulesEmbed();
   }
 
-  public createComponents(): ActionRowBuilder<ButtonBuilder>[] {
-    const verifyButton = new ButtonBuilder()
-      .setCustomId(this.buttonCustomId)
-      .setLabel('Verificarme')
-      .setStyle(ButtonStyle.Success);
-
-    return [new ActionRowBuilder<ButtonBuilder>().addComponents(verifyButton)];
-  }
-
   public buildRulesAttachments(): AttachmentBuilder[] {
     if (!this.env.WELCOME_GIF_PATH) {
       return [];
@@ -114,91 +100,66 @@ export class VerificationService {
 
     try {
       const filePath = resolveDedosAsset(this.env.WELCOME_GIF_PATH);
-      return [new AttachmentBuilder(filePath).setName('dedos-welcome.gif')];
+      return [new AttachmentBuilder(filePath).setName('dedosgif.gif')];
     } catch (error) {
       this.logger.warn({ err: error }, '[VERIFY] No se pudo cargar el GIF configurado.');
       return [];
     }
   }
 
-  public async verify(interaction: ButtonInteraction): Promise<void> {
-    if (!interaction.inCachedGuild()) {
-      await interaction.reply(
-        brandReplyOptions({
-          content: 'Esta acción solo está disponible dentro del servidor.',
-          ephemeral: true,
-        }),
-      );
-      return;
-    }
-
+  public async handleReaction(
+    reaction: MessageReaction | PartialMessageReaction,
+    user: User,
+  ): Promise<void> {
+    const verificationChannelId = this.env.VERIFICATION_CHANNEL_ID;
     const roleId = this.env.VERIFIED_ROLE_ID;
-    if (!roleId) {
-      await interaction.reply(
-        brandReplyOptions({
-          content: 'El rol de verificación no está configurado. Contacta a un administrador.',
-          ephemeral: true,
-        }),
-      );
+
+    if (!verificationChannelId || !roleId) {
       return;
     }
 
-    const guild = interaction.guild;
+    const message = reaction.message;
+    if (!message.inGuild() || message.channelId !== verificationChannelId) {
+      return;
+    }
+
+    if (this.verificationMessageId && message.id !== this.verificationMessageId) {
+      return;
+    }
+
+    if ((reaction.emoji.name ?? '') !== '✅') {
+      return;
+    }
+
     let member: GuildMember | null = null;
 
     try {
-      member = await guild.members.fetch(interaction.user.id);
+      member = await message.guild.members.fetch(user.id);
     } catch (error) {
-      this.logger.error({ err: error, userId: interaction.user.id }, '[VERIFY] No se pudo obtener al miembro.');
-    }
-
-    if (!member) {
-      await interaction.reply(
-        brandReplyOptions({
-          content: 'No se pudo recuperar tu información de miembro. Intenta nuevamente en unos segundos.',
-          ephemeral: true,
-        }),
-      );
+      this.logger.error({ err: error, userId: user.id }, '[VERIFY] No se pudo obtener al miembro para asignar el rol.');
       return;
     }
 
-    if (member.roles.cache.has(roleId)) {
-      await interaction.reply(
-        brandReplyOptions({
-          content: 'Ya estás verificado. ¡Disfruta del servidor!',
-          ephemeral: true,
-        }),
-      );
+    if (!member || member.roles.cache.has(roleId)) {
       return;
     }
 
     try {
-      await member.roles.add(roleId, 'Verificación mediante panel de reglas');
+      await member.roles.add(roleId, 'Verificación mediante reacción en reglas');
     } catch (error) {
-      this.logger.error({ err: error, userId: member.id }, '[VERIFY] No se pudo asignar el rol.');
-      await interaction.reply(
-        brandReplyOptions({
-          content: 'No pude asignarte el rol. Intenta nuevamente o contacta al staff.',
-          ephemeral: true,
-        }),
-      );
+      this.logger.error({ err: error, userId: member.id }, '[VERIFY] No se pudo asignar el rol durante la verificación.');
       return;
     }
 
-    const dmPayload = this.buildVerificationDm(interaction.user.id);
+    const dmPayload = this.buildVerificationDm(member.id);
 
     try {
-      await interaction.user.send(dmPayload);
+      await user.send(dmPayload);
     } catch (error) {
-      this.logger.warn({ err: error, userId: interaction.user.id }, '[VERIFY] No se pudo enviar el DM de verificación.');
+      this.logger.warn({ err: error, userId: user.id }, '[VERIFY] No se pudo enviar el DM de verificación.');
     }
 
-    await interaction.reply(
-      brandReplyOptions({
-        content: '✅ ¡Listo! Ya tienes acceso completo al servidor.',
-        ephemeral: true,
-      }),
-    );
+    this.logger.info({ userId: member.id }, '[VERIFY] Rol de verificación asignado mediante reacción.');
   }
 
   private buildVerificationDm(memberId: string): MessageCreateOptions {
