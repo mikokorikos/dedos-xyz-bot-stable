@@ -31,14 +31,19 @@ export interface RuntimeConfig {
   readonly features: FeatureFlagConfig;
 }
 
+type RuntimeConfigUpdate = {
+  readonly reviewsChannelId?: RuntimeConfig['reviewsChannelId'];
+  readonly features?: Partial<FeatureFlagConfig>;
+};
+
 const DEFAULT_CONFIG: RuntimeConfig = {
   reviewsChannelId: null,
-  features: DEFAULT_FEATURE_FLAGS,
+  features: { ...DEFAULT_FEATURE_FLAGS },
 };
 
 let cachedConfig: RuntimeConfig | null = null;
 
-const mergeConfig = (partial: Partial<RuntimeConfig>, base: RuntimeConfig): RuntimeConfig => ({
+const mergeConfig = (partial: RuntimeConfigUpdate, base: RuntimeConfig): RuntimeConfig => ({
   reviewsChannelId:
     partial.reviewsChannelId !== undefined ? partial.reviewsChannelId : base.reviewsChannelId,
   features: {
@@ -47,7 +52,7 @@ const mergeConfig = (partial: Partial<RuntimeConfig>, base: RuntimeConfig): Runt
   },
 });
 
-const normalizeConfig = (raw: Partial<RuntimeConfig> | null | undefined): RuntimeConfig =>
+const normalizeConfig = (raw: RuntimeConfigUpdate | Partial<RuntimeConfig> | null | undefined): RuntimeConfig =>
   mergeConfig(raw ?? {}, DEFAULT_CONFIG);
 
 export const loadRuntimeConfig = async (): Promise<RuntimeConfig> => {
@@ -71,13 +76,13 @@ export const loadRuntimeConfig = async (): Promise<RuntimeConfig> => {
   }
 };
 
-export const saveRuntimeConfig = async (config: RuntimeConfig): Promise<void> => {
+export const saveRuntimeConfig = async (config: RuntimeConfig | RuntimeConfigUpdate): Promise<void> => {
   cachedConfig = normalizeConfig(config);
   await writeFile(RUNTIME_CONFIG_PATH, JSON.stringify(cachedConfig, null, 2), 'utf8');
 };
 
 export const updateRuntimeConfig = async (
-  partial: Partial<RuntimeConfig>,
+  partial: RuntimeConfigUpdate,
 ): Promise<RuntimeConfig> => {
   const current = await loadRuntimeConfig();
   const next = mergeConfig(partial, current);
