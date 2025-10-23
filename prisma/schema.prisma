@@ -92,24 +92,10 @@ model Ticket {
   trades          MiddlemanTrade[]
   reviews         MiddlemanReview[]
   finalizations   MiddlemanTradeFinalization[]
-  transcript      TicketTranscript?
 
   @@index([ownerId, status])
   @@index([guildId, createdAt(sort: Desc)])
   @@map("tickets")
-}
-
-model TicketTranscript {
-  id        String   @id @map("id")
-  ticketId  Int      @unique @map("ticket_id")
-  channelId BigInt   @map("channel_id")
-  messages  Json     @map("messages")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
-  @@map("ticket_transcripts")
 }
 
 model MessageCount {

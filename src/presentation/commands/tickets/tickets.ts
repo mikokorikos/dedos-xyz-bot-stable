@@ -3,7 +3,6 @@
 // ============================================================================
 
 import {
-  AttachmentBuilder,
   ChannelType,
   type ChatInputCommandInteraction,
   GuildMember,
@@ -16,13 +15,10 @@ import {
 } from 'discord.js';
 
 import { CloseSupportTicketUseCase } from '@/application/usecases/tickets/CloseSupportTicketUseCase';
-import { CreateTicketTranscriptUseCase } from '@/application/usecases/tickets/CreateTicketTranscriptUseCase';
-import { GetTicketTranscriptUseCase } from '@/application/usecases/tickets/GetTicketTranscriptUseCase';
 import { OpenSupportTicketUseCase } from '@/application/usecases/tickets/OpenSupportTicketUseCase';
 import { TicketType } from '@/domain/entities/types';
 import { prisma } from '@/infrastructure/db/prisma';
 import { PrismaTicketRepository } from '@/infrastructure/repositories/PrismaTicketRepository';
-import { PrismaTicketTranscriptRepository } from '@/infrastructure/repositories/PrismaTicketTranscriptRepository';
 import type { Command } from '@/presentation/commands/types';
 import { MiddlemanModal } from '@/presentation/components/modals/MiddlemanModal';
 import { TicketCloseReasonModal } from '@/presentation/components/modals/TicketCloseReasonModal';
@@ -60,13 +56,8 @@ import {
   brandMessageOptions,
   brandReplyOptions,
 } from '@/shared/utils/branding';
-import {
-  collectChannelMessagesForTranscript,
-  renderTranscriptAsHtml,
-} from '@/shared/utils/ticketTranscripts';
 
 const ticketRepository = new PrismaTicketRepository(prisma);
-const ticketTranscriptRepository = new PrismaTicketTranscriptRepository(prisma);
 
 const supportTicketUseCase = new OpenSupportTicketUseCase(ticketRepository, logger, {
   categoryId: env.TICKET_CATEGORY_ID,
@@ -77,15 +68,6 @@ const supportTicketUseCase = new OpenSupportTicketUseCase(ticketRepository, logg
 });
 
 const closeSupportTicketUseCase = new CloseSupportTicketUseCase(ticketRepository, logger);
-const createTicketTranscriptUseCase = new CreateTicketTranscriptUseCase(
-  ticketRepository,
-  ticketTranscriptRepository,
-  logger,
-);
-const getTicketTranscriptUseCase = new GetTicketTranscriptUseCase(
-  ticketTranscriptRepository,
-  logger,
-);
 
 const isTicketStaff = (member: GuildMember | null): boolean => {
   if (!member) {
@@ -903,6 +885,91 @@ export const ticketCloseCommand: Command = {
     '/ticket-close reason:"El caso fue resuelto"',
     `${env.COMMAND_PREFIX}ticket close Caso resuelto con el usuario`,
   ],
+  prefix: {
+    name: 'ticket',
+    async execute(message, args) {
+      const subcommand = args[0]?.toLowerCase();
+      if (subcommand !== 'close' && subcommand !== 'cerrar') {
+        return;
+      }
+
+      if (!(await isFeatureEnabled('tickets'))) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildFeatureDisabledEmbed('tickets')],
+            allowedMentions: { repliedUser: false },
+          }),
+        );
+        return;
+      }
+
+      const context = await ensureTicketStaffContextFromMessage(message);
+      if (!context) {
+        return;
+      }
+
+      const reason = args.slice(1).join(' ').trim();
+      if (reason.length < 5) {
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildTicketClosureReasonRequiredEmbed()],
+          }),
+        );
+        return;
+      }
+
+      try {
+        const result = await closeSupportTicketUseCase.execute({
+          channelId: context.channel.id,
+          actorId: message.author.id,
+          reason,
+        });
+
+        if (!result.closed) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [buildTicketNotAvailablePrefixEmbed()],
+            }),
+          );
+          return;
+        }
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildTicketClosureConfirmationEmbed(reason)],
+          }),
+        );
+
+        void dispatchTicketClosure({
+          channel: context.channel,
+          actorId: message.author.id,
+          ticketId: result.ticketId,
+          ownerId: result.ownerId,
+          reason,
+        });
+      } catch (error) {
+        if (error instanceof ValidationFailedError) {
+          await message.reply(
+            brandMessageOptions({
+              embeds: [buildTicketClosureFailedEmbed(extractValidationMessage(error))],
+            }),
+          );
+          return;
+        }
+
+        logger.error(
+          { err: error, channelId: message.channel.id },
+          'No se pudo cerrar el ticket con comando de prefijo.',
+        );
+
+        await message.reply(
+          brandMessageOptions({
+            embeds: [buildTicketClosureUnexpectedErrorEmbed()],
+          }),
+        );
+      }
+    },
+  },
   async execute(interaction) {
     const context = await ensureTicketStaffContextFromInteraction(interaction);
     if (!context) {
@@ -971,442 +1038,6 @@ export const ticketCloseCommand: Command = {
         }),
       );
     }
-  },
-};
-
-const SLASH_TRANSCRIPT_COMMAND = new SlashCommandBuilder()
-  .setName('ticket-transcript')
-  .setDescription('Gestiona las transcripciones del ticket de soporte actual.')
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName('create')
-      .setDescription('Genera un ID y comienza a guardar el chat de este ticket.'),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName('download')
-      .setDescription('Descarga la transcripción del ticket actual o una existente.')
-      .addStringOption((option) =>
-        option
-          .setName('id')
-          .setDescription('Identificador de la transcripción a descargar.'),
-      ),
-  );
-
-const TRANSCRIPT_CREATE_ALIASES = ['create', 'crear', 'start', 'iniciar'];
-const TRANSCRIPT_DOWNLOAD_ALIASES = ['download', 'descargar', 'export', 'bajar'];
-
-const isTranscriptKeyword = (value: string): boolean =>
-  value === 'transcript' || value === 'transcripcion' || value === 'transcripción' || value === 'log';
-
-export const ticketTranscriptCommand: Command = {
-  data: SLASH_TRANSCRIPT_COMMAND,
-  category: 'Tickets',
-  examples: [
-    '/ticket-transcript create',
-    '/ticket-transcript download',
-    `${env.COMMAND_PREFIX}ticket transcript create`,
-    `${env.COMMAND_PREFIX}ticket transcript download`,
-  ],
-  async execute(interaction) {
-    const context = await ensureTicketStaffContextFromInteraction(interaction);
-    if (!context) {
-      return;
-    }
-
-    if (!(await isFeatureEnabled('tickets'))) {
-      await interaction.reply(
-        brandReplyOptions({
-          embeds: [buildFeatureDisabledEmbed('tickets')],
-          flags: MessageFlags.Ephemeral,
-        }),
-      );
-      return;
-    }
-
-    const channel = context.channel;
-    const subcommand = interaction.options.getSubcommand();
-
-    if (subcommand === 'create') {
-      await interaction.deferReply({ ephemeral: true });
-
-      try {
-        const messages = await collectChannelMessagesForTranscript(channel);
-        const result = await createTicketTranscriptUseCase.execute({
-          channelId: channel.id,
-          actorId: interaction.user.id,
-          messages,
-        });
-
-        const embed = result.created
-          ? embedFactory.success({
-              title: 'Transcripción generada',
-              description: `Se creó la transcripción con ID **${result.transcriptId}**. Los mensajes nuevos se guardarán automáticamente.`,
-            })
-          : embedFactory.warning({
-              title: 'Transcripción existente',
-              description: `Este ticket ya cuenta con la transcripción **${result.transcriptId}**.`,
-            });
-
-        await interaction.editReply(
-          brandEditReplyOptions({
-            embeds: [embed],
-          }),
-        );
-      } catch (error) {
-        logger.error(
-          { err: error, channelId: channel.id },
-          'No se pudo generar la transcripción del ticket mediante comando slash.',
-        );
-
-        if (error instanceof ValidationFailedError) {
-          await interaction.editReply(
-            brandEditReplyOptions({
-              embeds: [
-                embedFactory.error({
-                  title: 'No se pudo crear la transcripción',
-                  description: extractValidationMessage(error),
-                }),
-              ],
-            }),
-          );
-          return;
-        }
-
-        await interaction.editReply(
-          brandEditReplyOptions({
-            embeds: [
-              embedFactory.error({
-                title: 'No se pudo crear la transcripción',
-                description: 'Ocurrió un error inesperado al intentar guardar el chat del ticket.',
-              }),
-            ],
-          }),
-        );
-      }
-
-      return;
-    }
-
-    if (subcommand === 'download') {
-      await interaction.deferReply({ ephemeral: true });
-
-      try {
-        const requestedId = interaction.options.getString('id') ?? undefined;
-        const transcript = await getTicketTranscriptUseCase.execute({
-          transcriptId: requestedId,
-          channelId: requestedId ? undefined : channel.id,
-        });
-
-        const html = renderTranscriptAsHtml(transcript);
-        const attachment = new AttachmentBuilder(Buffer.from(html, 'utf8'), {
-          name: `ticket-${transcript.id}.html`,
-        });
-
-        await interaction.editReply(
-          brandEditReplyOptions({
-            content: `Transcripción **${transcript.id}** lista para descargar.`,
-            files: [attachment],
-          }),
-        );
-      } catch (error) {
-        if (error instanceof ValidationFailedError) {
-          await interaction.editReply(
-            brandEditReplyOptions({
-              embeds: [
-                embedFactory.error({
-                  title: 'No se encontró la transcripción',
-                  description: extractValidationMessage(error),
-                }),
-              ],
-            }),
-          );
-          return;
-        }
-
-        logger.error(
-          { err: error, channelId: channel.id },
-          'No se pudo descargar la transcripción del ticket mediante comando slash.',
-        );
-
-        await interaction.editReply(
-          brandEditReplyOptions({
-            embeds: [
-              embedFactory.error({
-                title: 'No se pudo descargar la transcripción',
-                description: 'Ocurrió un error inesperado al generar el archivo del ticket.',
-              }),
-            ],
-          }),
-        );
-      }
-
-      return;
-    }
-
-    await interaction.reply(
-      brandReplyOptions({
-        embeds: [
-          embedFactory.error({
-            title: 'Subcomando desconocido',
-            description: 'Usa **create** o **download** para gestionar transcripciones.',
-          }),
-        ],
-        flags: MessageFlags.Ephemeral,
-      }),
-    );
-  },
-  prefix: {
-    name: 'ticket',
-    async execute(message, args) {
-      const subcommand = args[0]?.toLowerCase();
-      if (!subcommand) {
-        return;
-      }
-
-      if (subcommand === 'close' || subcommand === 'cerrar') {
-        if (!(await isFeatureEnabled('tickets'))) {
-          await message.reply(
-            brandMessageOptions({
-              embeds: [buildFeatureDisabledEmbed('tickets')],
-              allowedMentions: { repliedUser: false },
-            }),
-          );
-          return;
-        }
-
-        const context = await ensureTicketStaffContextFromMessage(message);
-        if (!context) {
-          return;
-        }
-
-        const reason = args.slice(1).join(' ').trim();
-        if (reason.length < 5) {
-          await message.reply(
-            brandMessageOptions({
-              embeds: [buildTicketClosureReasonRequiredEmbed()],
-            }),
-          );
-          return;
-        }
-
-        try {
-          const result = await closeSupportTicketUseCase.execute({
-            channelId: context.channel.id,
-            actorId: message.author.id,
-            reason,
-          });
-
-          if (!result.closed) {
-            await message.reply(
-              brandMessageOptions({
-                embeds: [buildTicketNotAvailablePrefixEmbed()],
-              }),
-            );
-            return;
-          }
-
-          await message.reply(
-            brandMessageOptions({
-              embeds: [buildTicketClosureConfirmationEmbed(reason)],
-            }),
-          );
-
-          void dispatchTicketClosure({
-            channel: context.channel,
-            actorId: message.author.id,
-            ticketId: result.ticketId,
-            ownerId: result.ownerId,
-            reason,
-          });
-        } catch (error) {
-          if (error instanceof ValidationFailedError) {
-            await message.reply(
-              brandMessageOptions({
-                embeds: [buildTicketClosureFailedEmbed(extractValidationMessage(error))],
-              }),
-            );
-            return;
-          }
-
-          logger.error(
-            { err: error, channelId: message.channel.id },
-            'No se pudo cerrar el ticket con comando de prefijo.',
-          );
-
-          await message.reply(
-            brandMessageOptions({
-              embeds: [buildTicketClosureUnexpectedErrorEmbed()],
-            }),
-          );
-        }
-
-        return;
-      }
-
-      if (!isTranscriptKeyword(subcommand)) {
-        return;
-      }
-
-      if (!(await isFeatureEnabled('tickets'))) {
-        await message.reply(
-          brandMessageOptions({
-            embeds: [buildFeatureDisabledEmbed('tickets')],
-            allowedMentions: { repliedUser: false },
-          }),
-        );
-        return;
-      }
-
-      const action = args[1]?.toLowerCase();
-
-      if (!action) {
-        await message.reply(
-          brandMessageOptions({
-            embeds: [
-              embedFactory.warning({
-                title: 'Acción requerida',
-                description: 'Usa `create` para generar una transcripción o `download` para descargarla.',
-              }),
-            ],
-          }),
-        );
-        return;
-      }
-
-      if (TRANSCRIPT_CREATE_ALIASES.includes(action)) {
-        const context = await ensureTicketStaffContextFromMessage(message);
-        if (!context) {
-          return;
-        }
-
-        try {
-          await context.channel.sendTyping().catch(() => {});
-          const messages = await collectChannelMessagesForTranscript(context.channel);
-          const result = await createTicketTranscriptUseCase.execute({
-            channelId: context.channel.id,
-            actorId: message.author.id,
-            messages,
-          });
-
-          const embed = result.created
-            ? embedFactory.success({
-                title: 'Transcripción creada',
-                description: `Se registró la transcripción con ID **${result.transcriptId}**. Los mensajes nuevos se guardarán automáticamente.`,
-              })
-            : embedFactory.warning({
-                title: 'Transcripción existente',
-                description: `Este ticket ya cuenta con la transcripción **${result.transcriptId}**.`,
-              });
-
-          await message.reply(brandMessageOptions({ embeds: [embed] }));
-        } catch (error) {
-          if (error instanceof ValidationFailedError) {
-            await message.reply(
-              brandMessageOptions({
-                embeds: [
-                  embedFactory.error({
-                    title: 'No se pudo crear la transcripción',
-                    description: extractValidationMessage(error),
-                  }),
-                ],
-              }),
-            );
-            return;
-          }
-
-          logger.error(
-            { err: error, channelId: message.channel.id },
-            'No se pudo crear la transcripción con comando de prefijo.',
-          );
-
-          await message.reply(
-            brandMessageOptions({
-              embeds: [
-                embedFactory.error({
-                  title: 'No se pudo crear la transcripción',
-                  description: 'Ocurrió un error inesperado al intentar guardar el chat del ticket.',
-                }),
-              ],
-            }),
-          );
-        }
-
-        return;
-      }
-
-      if (TRANSCRIPT_DOWNLOAD_ALIASES.includes(action)) {
-        const context = await ensureTicketStaffContextFromMessage(message);
-        if (!context) {
-          return;
-        }
-
-        const requestedId = args[2];
-
-        try {
-          await context.channel.sendTyping().catch(() => {});
-          const transcript = await getTicketTranscriptUseCase.execute({
-            transcriptId: requestedId,
-            channelId: requestedId ? undefined : context.channel.id,
-          });
-
-          const html = renderTranscriptAsHtml(transcript);
-          const attachment = new AttachmentBuilder(Buffer.from(html, 'utf8'), {
-            name: `ticket-${transcript.id}.html`,
-          });
-
-          await message.reply(
-            brandMessageOptions({
-              content: `Transcripción **${transcript.id}** lista para descargar.`,
-              files: [attachment],
-            }),
-          );
-        } catch (error) {
-          if (error instanceof ValidationFailedError) {
-            await message.reply(
-              brandMessageOptions({
-                embeds: [
-                  embedFactory.error({
-                    title: 'No se encontró la transcripción',
-                    description: extractValidationMessage(error),
-                  }),
-                ],
-              }),
-            );
-            return;
-          }
-
-          logger.error(
-            { err: error, channelId: message.channel.id },
-            'No se pudo descargar la transcripción con comando de prefijo.',
-          );
-
-          await message.reply(
-            brandMessageOptions({
-              embeds: [
-                embedFactory.error({
-                  title: 'No se pudo descargar la transcripción',
-                  description: 'Ocurrió un error inesperado al generar el archivo del ticket.',
-                }),
-              ],
-            }),
-          );
-        }
-
-        return;
-      }
-
-      await message.reply(
-        brandMessageOptions({
-          embeds: [
-            embedFactory.warning({
-              title: 'Acción no reconocida',
-              description: 'Usa `create` para generar una transcripción o `download` para descargarla.',
-            }),
-          ],
-        }),
-      );
-    },
   },
 };
 
